@@ -1,7 +1,7 @@
 """
 Script pentru rularea experimentelor cu toți agenții RL.
 
-Antrenează Q-Learning, DQN și PPO pe mediul DynamicFrozenLake și salvează rezultatele.
+Antrenează Q-Learning, DQN, PPO și PPO+RND pe mediul DynamicFrozenLake și salvează rezultatele.
 """
 
 import sys
@@ -18,6 +18,7 @@ from environments.dynamic_frozenlake import DynamicFrozenLakeEnv
 from agents.q_learning import QLearningAgent
 from agents.dqn import DQNAgent
 from agents.ppo import PPOAgent
+from agents.ppo_rnd import PPORndAgent
 
 
 def create_results_dir():
@@ -31,14 +32,6 @@ def create_results_dir():
 def run_q_learning_experiment(env, n_episodes=1000, n_runs=5):
     """
     Rulează experimente cu Q-Learning.
-
-    Args:
-        env: Mediul de antrenament
-        n_episodes: Număr de episoade per run
-        n_runs: Număr de rulări independente
-
-    Returns:
-        Dicționar cu rezultate
     """
     print("\n" + "="*60)
     print("ANTRENARE Q-LEARNING")
@@ -49,7 +42,6 @@ def run_q_learning_experiment(env, n_episodes=1000, n_runs=5):
     for run in range(n_runs):
         print(f"\nRun {run + 1}/{n_runs}")
 
-        # Creează agent nou pentru fiecare run
         agent = QLearningAgent(
             n_states=env.observation_space.n,
             n_actions=env.action_space.n,
@@ -65,7 +57,6 @@ def run_q_learning_experiment(env, n_episodes=1000, n_runs=5):
         epsilons = []
         td_errors = []
 
-        # Antrenare
         for episode in tqdm(range(n_episodes), desc=f"Q-Learning Run {run+1}"):
             stats = agent.train_episode(env)
             episode_rewards.append(stats['total_reward'])
@@ -73,7 +64,6 @@ def run_q_learning_experiment(env, n_episodes=1000, n_runs=5):
             epsilons.append(stats['epsilon'])
             td_errors.append(stats['avg_td_error'])
 
-        # Evaluare finală
         eval_stats = agent.evaluate(env, n_episodes=100)
 
         all_results.append({
@@ -103,14 +93,6 @@ def run_q_learning_experiment(env, n_episodes=1000, n_runs=5):
 def run_dqn_experiment(env, n_episodes=1000, n_runs=5):
     """
     Rulează experimente cu DQN.
-
-    Args:
-        env: Mediul de antrenament
-        n_episodes: Număr de episoade per run
-        n_runs: Număr de rulări independente
-
-    Returns:
-        Dicționar cu rezultate
     """
     print("\n" + "="*60)
     print("ANTRENARE DQN")
@@ -121,7 +103,6 @@ def run_dqn_experiment(env, n_episodes=1000, n_runs=5):
     for run in range(n_runs):
         print(f"\nRun {run + 1}/{n_runs}")
 
-        # Creează agent nou pentru fiecare run
         agent = DQNAgent(
             n_states=env.observation_space.n,
             n_actions=env.action_space.n,
@@ -142,7 +123,6 @@ def run_dqn_experiment(env, n_episodes=1000, n_runs=5):
         losses = []
         buffer_sizes = []
 
-        # Antrenare
         for episode in tqdm(range(n_episodes), desc=f"DQN Run {run+1}"):
             stats = agent.train_episode(env)
             episode_rewards.append(stats['total_reward'])
@@ -151,7 +131,6 @@ def run_dqn_experiment(env, n_episodes=1000, n_runs=5):
             losses.append(stats['avg_loss'])
             buffer_sizes.append(stats['buffer_size'])
 
-        # Evaluare finală
         eval_stats = agent.evaluate(env, n_episodes=100)
 
         all_results.append({
@@ -184,15 +163,7 @@ def run_dqn_experiment(env, n_episodes=1000, n_runs=5):
 
 def run_ppo_experiment(env, total_timesteps=100000, n_runs=5):
     """
-    Rulează experimente cu PPO.
-
-    Args:
-        env: Mediul de antrenament
-        total_timesteps: Număr total de timesteps per run
-        n_runs: Număr de rulări independente
-
-    Returns:
-        Dicționar cu rezultate
+    Rulează experimente cu PPO (SB3 wrapper-ul tău).
     """
     print("\n" + "="*60)
     print("ANTRENARE PPO")
@@ -203,7 +174,6 @@ def run_ppo_experiment(env, total_timesteps=100000, n_runs=5):
     for run in range(n_runs):
         print(f"\nRun {run + 1}/{n_runs}")
 
-        # Creează agent nou pentru fiecare run
         agent = PPOAgent(
             env=env,
             learning_rate=0.0003,
@@ -214,11 +184,9 @@ def run_ppo_experiment(env, total_timesteps=100000, n_runs=5):
             verbose=0
         )
 
-        # Antrenare cu progress bar
         print(f"Training PPO for {total_timesteps} timesteps...")
         stats = agent.train(total_timesteps=total_timesteps, progress_bar=True)
 
-        # Evaluare finală
         eval_stats = agent.evaluate(env, n_episodes=100)
 
         all_results.append({
@@ -243,18 +211,80 @@ def run_ppo_experiment(env, total_timesteps=100000, n_runs=5):
     }
 
 
+def run_ppo_rnd_experiment(env, total_timesteps=100000, n_runs=5):
+    """
+    Rulează experimente cu PPO + RND (agent custom, PyTorch).
+    """
+    print("\n" + "="*60)
+    print("ANTRENARE PPO + RND")
+    print("="*60)
+
+    all_results = []
+
+    for run in range(n_runs):
+        print(f"\nRun {run + 1}/{n_runs}")
+
+        agent = PPORndAgent(
+            env=env,
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=64,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.01,
+
+            beta_int=0.05,             # dacă success rate rămâne 0, încearcă 0.1
+            rnd_lr=1e-4,
+            rnd_out_dim=64,
+            rnd_update_proportion=0.25,
+            normalize_int_reward=True,
+
+            verbose=0,
+        )
+
+        print(f"Training PPO+RND for {total_timesteps} timesteps...")
+        stats = agent.train(total_timesteps=total_timesteps, progress_bar=True)
+
+        eval_stats = agent.evaluate(env, n_episodes=100)
+
+        all_results.append({
+            'training_stats': stats,
+            'final_eval': eval_stats
+        })
+
+        print(f"Final Evaluation - Mean Reward: {eval_stats['mean_reward']:.4f}, "
+              f"Success Rate: {eval_stats['success_rate']:.2%}")
+
+    return {
+        'algorithm': 'PPO+RND',
+        'runs': all_results,
+        'hyperparameters': {
+            'learning_rate': 3e-4,
+            'n_steps': 2048,
+            'batch_size': 64,
+            'n_epochs': 10,
+            'gamma': 0.99,
+            'gae_lambda': 0.95,
+            'clip_range': 0.2,
+            'ent_coef': 0.01,
+            'beta_int': 0.05,
+            'rnd_lr': 1e-4,
+            'rnd_out_dim': 64,
+            'rnd_update_proportion': 0.25,
+            'normalize_int_reward': True,
+            'total_timesteps': total_timesteps
+        }
+    }
+
+
 def save_results(results, results_dir):
     """
     Salvează rezultatele experimentelor.
-
-    Args:
-        results: Dicționar cu rezultate
-        results_dir: Director pentru salvare
     """
-    # Salvează ca JSON
     results_file = os.path.join(results_dir, 'results.json')
 
-    # Convertește numpy arrays în liste pentru JSON
     def convert_to_serializable(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -284,17 +314,14 @@ def main():
     print("Mediu: Dynamic FrozenLake")
     print("="*60)
 
-    # Parametri experimentale
     MAP_SIZE = 8
-    N_EPISODES = 500  # Pentru Q-Learning și DQN
-    PPO_TIMESTEPS = 50000  # Pentru PPO
-    N_RUNS = 5  # Număr de rulări independente per algoritm
+    N_EPISODES = 500
+    PPO_TIMESTEPS = 50000
+    N_RUNS = 5
 
-    # Creează directorul de rezultate
     results_dir = create_results_dir()
     print(f"\nRezultate vor fi salvate în: {results_dir}")
 
-    # Creează mediul
     env = DynamicFrozenLakeEnv(
         map_size=MAP_SIZE,
         max_steps=100,
@@ -309,7 +336,6 @@ def main():
     print(f"Observation space: {env.observation_space}")
     print(f"Action space: {env.action_space}")
 
-    # Rulează experimentele
     all_results = {}
 
     # 1. Q-Learning
@@ -324,10 +350,12 @@ def main():
     ppo_results = run_ppo_experiment(env, total_timesteps=PPO_TIMESTEPS, n_runs=N_RUNS)
     all_results['ppo'] = ppo_results
 
-    # Salvează rezultatele
+    # 4. PPO + RND
+    ppo_rnd_results = run_ppo_rnd_experiment(env, total_timesteps=PPO_TIMESTEPS, n_runs=N_RUNS)
+    all_results['ppo_rnd'] = ppo_rnd_results
+
     save_results(all_results, results_dir)
 
-    # Print rezumat final
     print("\n" + "="*60)
     print("REZUMAT FINAL")
     print("="*60)

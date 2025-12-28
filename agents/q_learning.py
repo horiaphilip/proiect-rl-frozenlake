@@ -23,10 +23,10 @@ class QLearningAgent:
         n_states: int,
         n_actions: int,
         learning_rate: float = 0.1,
-        discount_factor: float = 0.99,
-        epsilon_start: float = 1.0,
-        epsilon_end: float = 0.01,
-        epsilon_decay: float = 0.995,
+        discount_factor: float = 0.99,   #cat de mult conteaza viitorul
+        epsilon_start: float = 1.0,   # explorare totala la inceput
+        epsilon_end: float = 0.01,    #  explorare mica spre final, dar sufiecnta ca sa se adapteze
+        epsilon_decay: float = 0.995, # cat de repede scade explorarea
     ):
         """
         Inițializare agent Q-Learning.
