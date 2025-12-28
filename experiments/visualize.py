@@ -1,7 +1,7 @@
 """
 Script pentru vizualizarea rezultatelor experimentelor.
 
-Generează grafice și tabele comparative pentru Q-Learning, DQN, PPO și PPO+RND.
+Generează grafice și tabele comparative pentru Q-Learning, DQN, DQN+PER, PPO și PPO+RND.
 """
 
 import sys
@@ -22,14 +22,12 @@ plt.rcParams['font.size'] = 10
 
 
 def load_results(results_dir):
-    """Încarcă rezultatele din fișierul JSON."""
     results_file = os.path.join(results_dir, 'results.json')
     with open(results_file, 'r') as f:
         return json.load(f)
 
 
 def smooth_curve(values, weight=0.9):
-    """Netezește o curbă folosind exponential moving average."""
     smoothed = []
     last = values[0]
     for value in values:
@@ -41,15 +39,15 @@ def smooth_curve(values, weight=0.9):
 
 def plot_learning_curves(results, save_dir):
     """
-    Plotează curbele de învățare pentru Q-Learning și DQN (pe episoade).
-    PPO/PPO+RND sunt pe timesteps -> nu sunt incluse aici ca să nu amestecăm axe diferite.
+    Plotează curbele de învățare pentru algoritmii pe episoade (Q-Learning, DQN, DQN+PER).
+    PPO/PPO+RND sunt pe timesteps -> nu sunt comparabile 1:1 aici.
     """
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     fig.suptitle('Curbe de Învățare - Comparație Algoritmi', fontsize=16, fontweight='bold')
 
-    algorithms = ['q_learning', 'dqn']
-    colors = {'q_learning': 'blue', 'dqn': 'green', 'ppo': 'red', 'ppo_rnd': 'purple'}
-    labels = {'q_learning': 'Q-Learning', 'dqn': 'DQN', 'ppo': 'PPO', 'ppo_rnd': 'PPO+RND'}
+    algorithms = ['q_learning', 'dqn', 'dqn_per']  # ✅ add dqn_per
+    colors = {'q_learning': 'blue', 'dqn': 'green', 'dqn_per': 'orange', 'ppo': 'red', 'ppo_rnd': 'purple'}
+    labels = {'q_learning': 'Q-Learning', 'dqn': 'DQN', 'dqn_per': 'DQN+PER', 'ppo': 'PPO', 'ppo_rnd': 'PPO+RND'}
 
     # 1. Reward per Episode
     ax = axes[0, 0]
@@ -61,10 +59,9 @@ def plot_learning_curves(results, save_dir):
 
         mean_rewards = np.mean(all_rewards, axis=0)
         std_rewards = np.std(all_rewards, axis=0)
-
         smoothed_rewards = smooth_curve(mean_rewards)
-        episodes = range(len(mean_rewards))
 
+        episodes = range(len(mean_rewards))
         ax.plot(episodes, smoothed_rewards, label=labels[algo_name],
                 color=colors[algo_name], linewidth=2)
         ax.fill_between(episodes,
@@ -123,12 +120,12 @@ def plot_learning_curves(results, save_dir):
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # 4. Loss (doar pentru DQN)
+    # 4. Loss (DQN și DQN+PER)
     ax = axes[1, 1]
+
     if 'dqn' in results:
         dqn_results = results['dqn']
         all_losses = [run['losses'] for run in dqn_results['runs']]
-
         mean_losses = np.mean(all_losses, axis=0)
         std_losses = np.std(all_losses, axis=0)
         smoothed_losses = smooth_curve(mean_losses, weight=0.95)
@@ -139,11 +136,26 @@ def plot_learning_curves(results, save_dir):
         ax.fill_between(episodes,
                         np.array(smoothed_losses) - std_losses,
                         np.array(smoothed_losses) + std_losses,
-                        alpha=0.2, color=colors['dqn'])
+                        alpha=0.15, color=colors['dqn'])
+
+    if 'dqn_per' in results:
+        dqn_per_results = results['dqn_per']
+        all_losses = [run['losses'] for run in dqn_per_results['runs']]
+        mean_losses = np.mean(all_losses, axis=0)
+        std_losses = np.std(all_losses, axis=0)
+        smoothed_losses = smooth_curve(mean_losses, weight=0.95)
+
+        episodes = range(len(mean_losses))
+        ax.plot(episodes, smoothed_losses, label='DQN+PER',
+                color=colors['dqn_per'], linewidth=2)
+        ax.fill_between(episodes,
+                        np.array(smoothed_losses) - std_losses,
+                        np.array(smoothed_losses) + std_losses,
+                        alpha=0.15, color=colors['dqn_per'])
 
     ax.set_xlabel('Episode')
     ax.set_ylabel('Loss')
-    ax.set_title('DQN Training Loss')
+    ax.set_title('Training Loss (DQN vs DQN+PER)')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -156,14 +168,26 @@ def plot_learning_curves(results, save_dir):
 
 def plot_final_comparison(results, save_dir):
     """
-    Plotează comparație finală între algoritmi (include PPO+RND).
+    Plotează comparație finală între algoritmi (pe evaluation final).
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle('Comparație Finală între Algoritmi', fontsize=16, fontweight='bold')
 
-    algorithms = ['q_learning', 'dqn', 'ppo', 'ppo_rnd']
-    labels = {'q_learning': 'Q-Learning', 'dqn': 'DQN', 'ppo': 'PPO', 'ppo_rnd': 'PPO+RND'}
-    colors = {'q_learning': 'blue', 'dqn': 'green', 'ppo': 'red', 'ppo_rnd': 'purple'}
+    algorithms = ['q_learning', 'dqn', 'dqn_per', 'ppo', 'ppo_rnd']  # ✅ add dqn_per
+    labels = {
+        'q_learning': 'Q-Learning',
+        'dqn': 'DQN',
+        'dqn_per': 'DQN+PER',
+        'ppo': 'PPO',
+        'ppo_rnd': 'PPO+RND'
+    }
+    colors = {
+        'q_learning': 'blue',
+        'dqn': 'green',
+        'dqn_per': 'orange',
+        'ppo': 'red',
+        'ppo_rnd': 'purple'
+    }
 
     algo_names = []
     mean_rewards = []
@@ -189,7 +213,7 @@ def plot_final_comparison(results, save_dir):
         std_success_rates.append(np.std(successes))
         bar_colors.append(colors[algo_name])
 
-    # 1. Mean Reward Comparison
+    # 1. Mean Reward
     ax = axes[0]
     x_pos = np.arange(len(algo_names))
     bars = ax.bar(x_pos, mean_rewards, yerr=std_rewards,
@@ -208,7 +232,7 @@ def plot_final_comparison(results, save_dir):
                 f'{val:.3f}±{std:.3f}',
                 ha='center', va='bottom', fontsize=9)
 
-    # 2. Success Rate Comparison
+    # 2. Success Rate
     ax = axes[1]
     bars = ax.bar(x_pos, success_rates, yerr=std_success_rates,
                   capsize=5, alpha=0.7, color=bar_colors)
@@ -236,19 +260,20 @@ def plot_final_comparison(results, save_dir):
 
 def plot_convergence_analysis(results, save_dir):
     """
-    Analizează convergența (doar Q-Learning și DQN, că sunt pe episoade).
+    Analizează convergența algoritmilor (pe episoade).
+    Include: Q-Learning, DQN, DQN+PER.
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle('Analiză Convergență', fontsize=16, fontweight='bold')
 
-    algorithms = ['q_learning', 'dqn']
-    labels = {'q_learning': 'Q-Learning', 'dqn': 'DQN'}
-    colors = {'q_learning': 'blue', 'dqn': 'green'}
+    algorithms = ['q_learning', 'dqn', 'dqn_per']  # ✅ add dqn_per
+    labels = {'q_learning': 'Q-Learning', 'dqn': 'DQN', 'dqn_per': 'DQN+PER'}
+    colors = {'q_learning': 'blue', 'dqn': 'green', 'dqn_per': 'orange'}
+
+    window_size = 50
 
     # 1. Rolling Average Reward
     ax = axes[0]
-    window_size = 50
-
     for algo_name in algorithms:
         if algo_name not in results:
             continue
@@ -277,10 +302,8 @@ def plot_convergence_analysis(results, save_dir):
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # 2. Rolling Variance
+    # 2. Rolling Variance Reward
     ax = axes[1]
-    window_size = 50
-
     for algo_name in algorithms:
         if algo_name not in results:
             continue
@@ -313,10 +336,16 @@ def plot_convergence_analysis(results, save_dir):
 
 def create_comparison_table(results, save_dir):
     """
-    Creează tabel comparativ cu metrici (include PPO+RND).
+    Creează tabel comparativ cu metrici pentru toate algoritmele.
     """
-    algorithms = ['q_learning', 'dqn', 'ppo', 'ppo_rnd']
-    labels = {'q_learning': 'Q-Learning', 'dqn': 'DQN', 'ppo': 'PPO', 'ppo_rnd': 'PPO+RND'}
+    algorithms = ['q_learning', 'dqn', 'dqn_per', 'ppo', 'ppo_rnd']  # ✅ add dqn_per
+    labels = {
+        'q_learning': 'Q-Learning',
+        'dqn': 'DQN',
+        'dqn_per': 'DQN+PER',
+        'ppo': 'PPO',
+        'ppo_rnd': 'PPO+RND'
+    }
 
     table_data = []
 
@@ -363,7 +392,7 @@ def main():
 
     results_base = "../results"
     experiment_dirs = sorted([d for d in Path(results_base).iterdir() if d.is_dir()],
-                             key=lambda x: x.stat().st_mtime, reverse=True)
+                            key=lambda x: x.stat().st_mtime, reverse=True)
 
     if not experiment_dirs:
         print("Nu s-au găsit rezultate. Rulați mai întâi experiments/run_experiments.py")

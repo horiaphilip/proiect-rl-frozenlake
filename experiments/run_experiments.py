@@ -1,7 +1,7 @@
 """
 Script pentru rularea experimentelor cu toți agenții RL.
 
-Antrenează Q-Learning, DQN, PPO și PPO+RND pe mediul DynamicFrozenLake și salvează rezultatele.
+Antrenează Q-Learning, DQN, DQN+PER, PPO și PPO+RND pe mediul DynamicFrozenLake și salvează rezultatele.
 """
 
 import sys
@@ -17,8 +17,9 @@ import matplotlib.pyplot as plt
 from environments.dynamic_frozenlake import DynamicFrozenLakeEnv
 from agents.q_learning import QLearningAgent
 from agents.dqn import DQNAgent
+from agents.dqn_per import DQN_PERAgent   # ✅ NEW
 from agents.ppo import PPOAgent
-from agents.ppo_rnd import PPORndAgent
+from agents.ppo_rnd import PPORndAgent    # ✅ assuming you have this
 
 
 def create_results_dir():
@@ -161,9 +162,92 @@ def run_dqn_experiment(env, n_episodes=1000, n_runs=5):
     }
 
 
+# ✅ NEW: DQN + PER
+def run_dqn_per_experiment(env, n_episodes=1000, n_runs=5):
+    """
+    Rulează experimente cu DQN + Prioritized Experience Replay (PER).
+    """
+    print("\n" + "="*60)
+    print("ANTRENARE DQN + PER")
+    print("="*60)
+
+    all_results = []
+
+    for run in range(n_runs):
+        print(f"\nRun {run + 1}/{n_runs}")
+
+        agent = DQN_PERAgent(
+            n_states=env.observation_space.n,
+            n_actions=env.action_space.n,
+            learning_rate=0.001,
+            discount_factor=0.99,
+            epsilon_start=1.0,
+            epsilon_end=0.01,
+            epsilon_decay=0.995,
+            buffer_capacity=10000,
+            batch_size=64,
+            target_update_freq=10,
+            hidden_dim=128,
+
+            # PER params (typical defaults)
+            per_alpha=0.6,
+            per_beta_start=0.4,
+            per_beta_end=1.0,
+            per_beta_anneal_steps=50000,
+            per_eps=1e-6
+        )
+
+        episode_rewards = []
+        episode_steps = []
+        epsilons = []
+        losses = []
+        buffer_sizes = []
+
+        for episode in tqdm(range(n_episodes), desc=f"DQN+PER Run {run+1}"):
+            stats = agent.train_episode(env)
+            episode_rewards.append(stats['total_reward'])
+            episode_steps.append(stats['steps'])
+            epsilons.append(stats['epsilon'])
+            losses.append(stats['avg_loss'])
+            buffer_sizes.append(stats['buffer_size'])
+
+        eval_stats = agent.evaluate(env, n_episodes=100)
+
+        all_results.append({
+            'episode_rewards': episode_rewards,
+            'episode_steps': episode_steps,
+            'epsilons': epsilons,
+            'losses': losses,
+            'buffer_sizes': buffer_sizes,
+            'final_eval': eval_stats
+        })
+
+        print(f"Final Evaluation - Mean Reward: {eval_stats['mean_reward']:.4f}, "
+              f"Success Rate: {eval_stats['success_rate']:.2%}")
+
+    return {
+        'algorithm': 'DQN+PER',
+        'runs': all_results,
+        'hyperparameters': {
+            'learning_rate': 0.001,
+            'discount_factor': 0.99,
+            'epsilon_start': 1.0,
+            'epsilon_end': 0.01,
+            'epsilon_decay': 0.995,
+            'buffer_capacity': 10000,
+            'batch_size': 64,
+            'hidden_dim': 128,
+            'per_alpha': 0.6,
+            'per_beta_start': 0.4,
+            'per_beta_end': 1.0,
+            'per_beta_anneal_steps': 50000
+        }
+    }
+
+
 def run_ppo_experiment(env, total_timesteps=100000, n_runs=5):
     """
-    Rulează experimente cu PPO (SB3 wrapper-ul tău).
+    Rulează experimente cu PPO.
     """
     print("\n" + "="*60)
     print("ANTRENARE PPO")
@@ -211,9 +295,10 @@ def run_ppo_experiment(env, total_timesteps=100000, n_runs=5):
     }
 
 
+# ✅ assuming you already have PPORndAgent with same API
 def run_ppo_rnd_experiment(env, total_timesteps=100000, n_runs=5):
     """
-    Rulează experimente cu PPO + RND (agent custom, PyTorch).
+    Rulează experimente cu PPO + RND.
     """
     print("\n" + "="*60)
     print("ANTRENARE PPO + RND")
@@ -224,25 +309,7 @@ def run_ppo_rnd_experiment(env, total_timesteps=100000, n_runs=5):
     for run in range(n_runs):
         print(f"\nRun {run + 1}/{n_runs}")
 
-        agent = PPORndAgent(
-            env=env,
-            learning_rate=3e-4,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.01,
-
-            beta_int=0.05,             # dacă success rate rămâne 0, încearcă 0.1
-            rnd_lr=1e-4,
-            rnd_out_dim=64,
-            rnd_update_proportion=0.25,
-            normalize_int_reward=True,
-
-            verbose=0,
-        )
+        agent = PPORndAgent(env=env, verbose=0)
 
         print(f"Training PPO+RND for {total_timesteps} timesteps...")
         stats = agent.train(total_timesteps=total_timesteps, progress_bar=True)
@@ -261,19 +328,6 @@ def run_ppo_rnd_experiment(env, total_timesteps=100000, n_runs=5):
         'algorithm': 'PPO+RND',
         'runs': all_results,
         'hyperparameters': {
-            'learning_rate': 3e-4,
-            'n_steps': 2048,
-            'batch_size': 64,
-            'n_epochs': 10,
-            'gamma': 0.99,
-            'gae_lambda': 0.95,
-            'clip_range': 0.2,
-            'ent_coef': 0.01,
-            'beta_int': 0.05,
-            'rnd_lr': 1e-4,
-            'rnd_out_dim': 64,
-            'rnd_update_proportion': 0.25,
-            'normalize_int_reward': True,
             'total_timesteps': total_timesteps
         }
     }
@@ -346,11 +400,15 @@ def main():
     dqn_results = run_dqn_experiment(env, n_episodes=N_EPISODES, n_runs=N_RUNS)
     all_results['dqn'] = dqn_results
 
-    # 3. PPO
+    # ✅ 3. DQN + PER (NEW)
+    dqn_per_results = run_dqn_per_experiment(env, n_episodes=N_EPISODES, n_runs=N_RUNS)
+    all_results['dqn_per'] = dqn_per_results
+
+    # 4. PPO
     ppo_results = run_ppo_experiment(env, total_timesteps=PPO_TIMESTEPS, n_runs=N_RUNS)
     all_results['ppo'] = ppo_results
 
-    # 4. PPO + RND
+    # 5. PPO+RND
     ppo_rnd_results = run_ppo_rnd_experiment(env, total_timesteps=PPO_TIMESTEPS, n_runs=N_RUNS)
     all_results['ppo_rnd'] = ppo_rnd_results
 
