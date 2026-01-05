@@ -267,16 +267,54 @@ class DQNAgent:
             'buffer_size': len(self.replay_buffer)
         }
 
+    # def evaluate(self, env, n_episodes: int = 10) -> Dict[str, float]:
+    #     """
+    #     Evaluează agentul fără explorare.
+    #
+    #     Args:
+    #         env: Mediul de evaluare
+    #         n_episodes: Număr de episoade de evaluare
+    #
+    #     Returns:
+    #         Dicționar cu metrici de evaluare
+    #     """
+    #     rewards = []
+    #     steps_list = []
+    #     success_count = 0
+    #
+    #     for _ in range(n_episodes):
+    #         state, _ = env.reset()
+    #         total_reward = 0
+    #         steps = 0
+    #
+    #         while True:
+    #             action = self.select_action(state, training=False)
+    #             next_state, reward, terminated, truncated, _ = env.step(action)
+    #             done = terminated or truncated
+    #
+    #             total_reward += reward
+    #             steps += 1
+    #             state = next_state
+    #
+    #             if done:
+    #                 break
+    #
+    #         rewards.append(total_reward)
+    #         steps_list.append(steps)
+    #         if total_reward > 0.5:
+    #             success_count += 1
+    #
+    #     return {
+    #         'mean_reward': np.mean(rewards),
+    #         'std_reward': np.std(rewards),
+    #         'mean_steps': np.mean(steps_list),
+    #         'success_rate': success_count / n_episodes
+    #     }
+
     def evaluate(self, env, n_episodes: int = 10) -> Dict[str, float]:
         """
         Evaluează agentul fără explorare.
-
-        Args:
-            env: Mediul de evaluare
-            n_episodes: Număr de episoade de evaluare
-
-        Returns:
-            Dicționar cu metrici de evaluare
+        Success = a atins GOAL (reward final == 1.0).
         """
         rewards = []
         steps_list = []
@@ -284,31 +322,37 @@ class DQNAgent:
 
         for _ in range(n_episodes):
             state, _ = env.reset()
-            total_reward = 0
+            total_reward = 0.0
             steps = 0
+            reached_goal = False
 
             while True:
                 action = self.select_action(state, training=False)
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 done = terminated or truncated
 
-                total_reward += reward
+                total_reward += float(reward)
                 steps += 1
                 state = next_state
+
+                # ✅ succes real: ultimul reward = 1.0 (adică a intrat pe G)
+                if terminated and float(reward) >= 1.0:
+                    reached_goal = True
 
                 if done:
                     break
 
             rewards.append(total_reward)
             steps_list.append(steps)
-            if total_reward > 0.5:
+
+            if reached_goal:
                 success_count += 1
 
         return {
-            'mean_reward': np.mean(rewards),
-            'std_reward': np.std(rewards),
-            'mean_steps': np.mean(steps_list),
-            'success_rate': success_count / n_episodes
+            "mean_reward": float(np.mean(rewards)),
+            "std_reward": float(np.std(rewards)),
+            "mean_steps": float(np.mean(steps_list)),
+            "success_rate": success_count / n_episodes,
         }
 
     def save(self, filepath: str):

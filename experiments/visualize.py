@@ -390,7 +390,7 @@ def main():
     print("VIZUALIZARE REZULTATE EXPERIMENTE")
     print("="*60)
 
-    results_base = "../results"
+    results_base = r"C:\Users\Lenovo\results"
     experiment_dirs = sorted([d for d in Path(results_base).iterdir() if d.is_dir()],
                             key=lambda x: x.stat().st_mtime, reverse=True)
 
