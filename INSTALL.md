@@ -37,7 +37,7 @@ Dacă nu ai Python instalat:
 ### Pasul 2: Navighează în Directorul Proiectului
 
 ```bash
-cd C:\Users\Horia\PyCharmMiscProject\proiect_irl
+cd path/to/proiect_irl
 ```
 
 ### Pasul 3: Verificare Virtual Environment
