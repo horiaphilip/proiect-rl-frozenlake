@@ -6,7 +6,7 @@ Ghid rapid pentru a începe să lucrezi cu proiectul.
 
 ```bash
 # 1. Navighează în directorul proiectului
-cd C:\Users\Horia\PyCharmMiscProject\proiect_irl
+cd path\to\proiect_irl
 
 # 2. Activează virtual environment
 .venv\Scripts\activate
