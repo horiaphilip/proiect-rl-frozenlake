@@ -308,82 +308,114 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from collections import deque
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List, Set
 
 
 class DynamicFrozenLakeEnv(gym.Env):
+    """
+    Dynamic FrozenLake (solvable + controlled melting + time-aware state).
+    - Generează hartă solvabilă
+    - Safe zone lângă start
+    - Topire controlată (doar câteva celule pe pas)
+    - Protejează un shortest-path corridor ca să nu devină imposibil
+    - ✅ Time-aware state (B1): include bucket de timp ca să facă mediul "staționar" pt Q-learning/DQN
+    """
+
     metadata = {"render_modes": ["human", "ansi"], "render_fps": 4}
 
     def __init__(
         self,
         map_size: int = 8,
         render_mode: Optional[str] = None,
-        max_steps: int = 120,
-        slippery_start: float = 0.10,
-        slippery_end: float = 0.40,
-        step_penalty: float = -0.01,
+        max_steps: int = 140,
+        slippery_start: float = 0.02,
+        slippery_end: float = 0.15,
+        step_penalty: float = -0.001,
         ice_melting: bool = True,
-        melting_rate: float = 0.005,
+        melting_rate: float = 0.003,
+        melt_cells_per_step: int = 1,
+        melt_delay_steps: int = 10,
 
         # reward shaping
         shaped_rewards: bool = True,
         shaping_scale: float = 0.02,
         hole_penalty: float = -1.0,
 
+        # map difficulty
+        hole_ratio: float = 0.12,
+
         # safe zone
         protect_safe_zone_from_melting: bool = True,
 
-        # dificultate
-        hole_ratio: float = 0.20,
-
-        # topire controlată
-        melt_cells_per_step: int = 1,
-
-        # IMPORTANT: nu regenera harta la fiecare episod (pentru stabilitate)
+        # stability
         regenerate_map_each_episode: bool = False,
-
-        # câte încercări să facă până găsește o hartă solvabilă
         max_map_tries: int = 200,
+
+        # protect shortest path
+        protect_solution_path_from_melting: bool = True,
+
+        # ✅ NEW: time-buckets for augmented state
+        time_buckets: int = 10,
     ):
         super().__init__()
 
-        self.map_size = map_size
+        self.map_size = int(map_size)
         self.render_mode = render_mode
-        self.max_steps = max_steps
-        self.slippery_start = slippery_start
-        self.slippery_end = slippery_end
-        self.step_penalty = step_penalty
-        self.ice_melting = ice_melting
-        self.melting_rate = float(melting_rate)
+        self.max_steps = int(max_steps)
 
-        self.shaped_rewards = shaped_rewards
+        self.slippery_start = float(slippery_start)
+        self.slippery_end = float(slippery_end)
+
+        self.step_penalty = float(step_penalty)
+
+        self.ice_melting = bool(ice_melting)
+        self.melting_rate = float(melting_rate)
+        self.melt_cells_per_step = int(melt_cells_per_step)
+        self.melt_delay_steps = int(melt_delay_steps)
+
+        self.shaped_rewards = bool(shaped_rewards)
         self.shaping_scale = float(shaping_scale)
         self.hole_penalty = float(hole_penalty)
 
-        self.protect_safe_zone_from_melting = protect_safe_zone_from_melting
         self.hole_ratio = float(hole_ratio)
-        self.melt_cells_per_step = int(melt_cells_per_step)
-        self.regenerate_map_each_episode = regenerate_map_each_episode
+        self.protect_safe_zone_from_melting = bool(protect_safe_zone_from_melting)
+
+        self.regenerate_map_each_episode = bool(regenerate_map_each_episode)
         self.max_map_tries = int(max_map_tries)
 
+        self.protect_solution_path_from_melting = bool(protect_solution_path_from_melting)
+
+        # ✅ time buckets
+        self.time_buckets = int(time_buckets)
+        self.time_buckets = max(1, self.time_buckets)
+
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Discrete(map_size * map_size)
+
+        # Base states = map_size^2. Augmented states = base * time_buckets
+        self.n_cells = self.map_size * self.map_size
+        self.observation_space = spaces.Discrete(self.n_cells * self.time_buckets)
 
         # safe zone lângă start
-        self.safe_zone = {(0, 0), (0, 1), (1, 0), (1, 1)}
+        self.safe_zone: Set[Tuple[int, int]] = {(0, 0), (0, 1), (1, 0), (1, 1)}
 
+        # generează hartă solvabilă
         self._generate_map_solvable()
 
+        # stare episod
         self.current_step = 0
         self.current_position = self.start_state
         self.current_slippery = self.slippery_start
 
-        # probabilitatea ca o celulă să rămână solidă
-        self.hole_probabilities = np.ones(self.map_size * self.map_size, dtype=np.float32)
+        # probabilitatea ca o celulă să rămână solidă (1.0 = sigur)
+        self.hole_probabilities = np.ones(self.n_cells, dtype=np.float32)
 
-    # =====================================================
-    # HELPERS
-    # =====================================================
+        # coridor protejat
+        self.protected_cells: Set[Tuple[int, int]] = set()
+        self._update_protected_cells()
+
+    # =============================
+    # Helpers
+    # =============================
     def _get_state_from_pos(self, r: int, c: int) -> int:
         return r * self.map_size + c
 
@@ -411,9 +443,28 @@ class DynamicFrozenLakeEnv(gym.Env):
         gr, gc = self._get_pos_from_state(self.goal_state)
         return abs(r - gr) + abs(c - gc)
 
-    # =====================================================
-    # MAP GENERATION (SOLVABLE)
-    # =====================================================
+    def _is_passable(self, r: int, c: int) -> bool:
+        return self.desc[r, c] in (b'S', b'F', b'G')
+
+    # =============================
+    # ✅ Time-aware state
+    # =============================
+    def _time_bucket(self) -> int:
+        # bucketize [0..max_steps] into time_buckets
+        if self.time_buckets <= 1:
+            return 0
+        bucket_size = max(1, self.max_steps // self.time_buckets)
+        b = self.current_step // bucket_size
+        return int(min(b, self.time_buckets - 1))
+
+    def _augment_state(self, base_state: int) -> int:
+        # augmented_state in [0..n_cells*time_buckets-1]
+        b = self._time_bucket()
+        return int(base_state + b * self.n_cells)
+
+    # =============================
+    # Map generation (solvable)
+    # =============================
     def _generate_map_once(self):
         size = self.map_size
         self.desc = np.full((size, size), 'F', dtype='c')
@@ -443,17 +494,12 @@ class DynamicFrozenLakeEnv(gym.Env):
             self.desc[r, c] = b'H'
 
     def _is_solvable(self) -> bool:
-        """BFS pe celulele traversabile: S/F/G (nu H)."""
         size = self.map_size
         start = (0, 0)
         goal = (size - 1, size - 1)
 
         q = deque([start])
-        visited = set([start])
-
-        def passable(rr, cc):
-            cell = self.desc[rr, cc]
-            return cell in (b'S', b'F', b'G')
+        visited = {start}
 
         while q:
             r, c = q.popleft()
@@ -462,32 +508,78 @@ class DynamicFrozenLakeEnv(gym.Env):
             for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < size and 0 <= nc < size and (nr, nc) not in visited:
-                    if passable(nr, nc):
+                    if self._is_passable(nr, nc):
                         visited.add((nr, nc))
                         q.append((nr, nc))
         return False
 
     def _generate_map_solvable(self):
-        """Generează până găsește o hartă solvabilă."""
         for _ in range(self.max_map_tries):
             self._generate_map_once()
             if self._is_solvable():
                 return
-        # dacă nu găsește, păstrează ultima (dar e foarte rar dacă hole_ratio nu e absurd)
-        # poți reduce hole_ratio dacă ajungi aici des.
 
-    # =====================================================
-    # CONTROLLED ICE MELTING
-    # =====================================================
+    # =============================
+    # Protect a solution path from melting
+    # =============================
+    def _find_shortest_path(self) -> List[Tuple[int, int]]:
+        size = self.map_size
+        start = (0, 0)
+        goal = (size - 1, size - 1)
+
+        q = deque([start])
+        parent: Dict[Tuple[int, int], Optional[Tuple[int, int]]] = {start: None}
+
+        while q:
+            r, c = q.popleft()
+            if (r, c) == goal:
+                break
+            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+                nr, nc = r + dr, c + dc
+                nxt = (nr, nc)
+                if 0 <= nr < size and 0 <= nc < size and nxt not in parent:
+                    if self._is_passable(nr, nc):
+                        parent[nxt] = (r, c)
+                        q.append(nxt)
+
+        if goal not in parent:
+            return []
+
+        path = []
+        cur = goal
+        while cur is not None:
+            path.append(cur)
+            cur = parent[cur]
+        path.reverse()
+        return path
+
+    def _update_protected_cells(self):
+        self.protected_cells = set(self.safe_zone)
+        self.protected_cells.add((0, 0))
+        self.protected_cells.add((self.map_size - 1, self.map_size - 1))
+
+        if self.protect_solution_path_from_melting:
+            path = self._find_shortest_path()
+            for cell in path:
+                self.protected_cells.add(cell)
+
+    # =============================
+    # Controlled melting
+    # =============================
     def _update_ice_melting(self):
         if not self.ice_melting:
             return
 
+        if self.current_step < self.melt_delay_steps:
+            return
+
         candidates = []
-        for s in range(self.map_size * self.map_size):
+        for s in range(self.n_cells):
             r, c = self._get_pos_from_state(s)
 
             if self.protect_safe_zone_from_melting and (r, c) in self.safe_zone:
+                continue
+            if (r, c) in self.protected_cells:
                 continue
             if self.desc[r, c] in (b'S', b'G', b'H'):
                 continue
@@ -505,16 +597,16 @@ class DynamicFrozenLakeEnv(gym.Env):
             if self.hole_probabilities[s] < 0.0:
                 self.hole_probabilities[s] = 0.0
 
-    # =====================================================
-    # STEP / RESET
-    # =====================================================
+    # =============================
+    # step / reset
+    # =============================
     def step(self, action: int):
         self.current_step += 1
         old_state = self.current_position
 
         self.current_slippery = self._get_slippery_prob()
 
-        # slip lateral
+        # slip lateral (FrozenLake style)
         if np.random.random() < self.current_slippery:
             if action in (0, 2):
                 action = int(np.random.choice([1, 3]))
@@ -524,15 +616,19 @@ class DynamicFrozenLakeEnv(gym.Env):
         new_state = self._apply_action(self.current_position, action)
         r, c = self._get_pos_from_state(new_state)
 
+        # update melt probabilities
         self._update_ice_melting()
 
+        # transform F -> H probabilistic (dar nu în celule protejate)
         if self.desc[r, c] == b'F' and np.random.random() > self.hole_probabilities[new_state]:
-            if (r, c) not in self.safe_zone:
+            if (r, c) not in self.protected_cells:
                 self.desc[r, c] = b'H'
 
         self.current_position = new_state
 
         reward = float(self.step_penalty)
+
+        # potential-based shaping
         if self.shaped_rewards:
             reward += self.shaping_scale * (
                 self._manhattan_to_goal(old_state) - self._manhattan_to_goal(new_state)
@@ -545,7 +641,7 @@ class DynamicFrozenLakeEnv(gym.Env):
             reward = 1.0
             terminated = True
         elif self.desc[r, c] == b'H':
-            reward = self.hole_penalty
+            reward = float(self.hole_penalty)
             terminated = True
 
         if self.current_step >= self.max_steps:
@@ -555,23 +651,30 @@ class DynamicFrozenLakeEnv(gym.Env):
             "current_step": self.current_step,
             "slippery_prob": float(self.current_slippery),
             "position": (int(r), int(c)),
+            "time_bucket": self._time_bucket(),
         }
 
-        return int(new_state), float(reward), terminated, truncated, info
+        # ✅ return augmented state
+        obs = self._augment_state(int(new_state))
+        return obs, float(reward), terminated, truncated, info
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 
         if self.regenerate_map_each_episode or (options and options.get("regenerate_map", False)):
             self._generate_map_solvable()
+            self._update_protected_cells()
 
         self.current_step = 0
         self.current_position = self.start_state
         self.current_slippery = self.slippery_start
         self.hole_probabilities[:] = 1.0
 
-        info = {"current_step": 0, "slippery_prob": float(self.current_slippery), "position": (0, 0)}
-        return int(self.current_position), info
+        info = {"current_step": 0, "slippery_prob": float(self.current_slippery), "position": (0, 0), "time_bucket": 0}
+
+        # ✅ augmented obs at reset
+        obs = self._augment_state(int(self.current_position))
+        return obs, info
 
     def render(self):
         if self.render_mode in ("ansi", "human"):
@@ -584,7 +687,7 @@ class DynamicFrozenLakeEnv(gym.Env):
                     else:
                         out += f" {self.desc[i, j].decode('utf-8')} "
                 out += "\n"
-            out += f"\nStep: {self.current_step}/{self.max_steps} | Slippery: {self.current_slippery:.2f}\n"
+            out += f"\nStep: {self.current_step}/{self.max_steps} | Slippery: {self.current_slippery:.2f} | Bucket: {self._time_bucket()}\n"
             if self.render_mode == "human":
                 print(out)
             return out
