@@ -246,6 +246,132 @@ Easy (4×4) → Medium (custom) → Dynamic (8×8)
 - **Comparare echitabilă** între algoritmi
 - **Generalizare** prin transfer learning
 
+
+
+  ## 2.3 MediumFrozenLake (8×8) – Dynamic Environment Controlat
+
+**Fișier:** `environments/dynamic_frozenlake_medium_env.py`  
+**Mod de utilizare:** configurație intermediară a mediului DynamicFrozenLake
+
+MediumFrozenLake reprezintă o variantă intermediară între EasyFrozenLake și DynamicFrozenLake,
+fiind conceput pentru a testa robustețea algoritmilor de Reinforcement Learning într-un mediu dinamic,
+dar încă solvabil.
+
+---
+
+### Caracteristici Tehnice
+
+| Parametru | Valoare | Justificare |
+|----------|--------|-------------|
+| Map size | 8×8 (64 stări) | Spațiu de explorare semnificativ mai mare decât Easy |
+| Time-aware state | 2 time buckets | Introduce noțiunea de timp fără explozie de stare |
+| Slippery | 0.02 → 0.12 | Dificultate progresivă, dar moderată |
+| Hole ratio | 10% | Mai sigur decât Challenge, dar nu trivial |
+| Ice melting | ON (controlat) | Dinamică non-staționară |
+| Melt delay | 25 pași | Permite explorare inițială sigură |
+| Melt rate | 0.002 | Topire lentă, graduală |
+| Step penalty | -0.001 | Penalizează rutele lungi |
+| Reward shaping | ON (scale = 0.02) | Ghidare subtilă către goal |
+| Safe zone | Protejată | Evită eșecuri premature |
+| Protected path | ON | Garantează existența unei soluții |
+
+---
+
+### Inovații în Design
+
+#### 1. Stare augmentată cu timp (Time-aware State)
+
+Starea agentului este extinsă pentru a include informație temporală discretizată în *time buckets*.  
+Astfel, observația nu mai reprezintă doar poziția pe hartă, ci și faza episodului.
+
+Această abordare:
+- permite agenților să distingă între începutul episodului (mediu stabil)
+- și finalul episodului (mediu degradat)
+- introduce non-staționaritate controlată fără a folosi rețele recurente
+
+Această decizie crește realismul mediului fără a complica excesiv spațiul de stare.
+
+---
+
+#### 2. Protejarea drumului minim (Shortest Path Protection)
+
+Pentru a preveni situațiile imposibile cauzate de topirea gheții, mediul calculează drumul minim
+între start și goal folosind BFS (Breadth-First Search).
+
+Celulele care aparțin acestui drum:
+- sunt protejate împotriva topirii
+- nu pot deveni găuri
+- rămân traversabile pe durata episodului
+
+Această măsură garantează solvabilitatea mediului chiar și în prezența dinamicii non-staționare.
+
+---
+
+#### 3. Ice Melting Controlat
+
+Topirea gheții este activată doar după un număr inițial de pași (melt delay),
+permițând agentului să exploreze mediul înainte ca dificultatea să crească.
+
+Caracteristici:
+- maxim o celulă afectată per pas
+- safe zone și drumul minim sunt excluse
+- probabilitatea de transformare crește gradual
+
+Rezultatul este o dinamică locală, nu o degradare globală haotică a mediului.
+
+---
+
+#### 4. Reward Shaping Subtil
+
+Mediul folosește potential-based reward shaping bazat pe distanța Manhattan până la goal.
+
+Comparativ cu EasyFrozenLake:
+- scala este redusă
+- shaping-ul este mai puțin dominant
+- agentul nu este forțat către o traiectorie rigidă
+
+Această abordare accelerează convergența fără a modifica politica optimă.
+
+---
+
+### Rezultate pe MediumFrozenLake
+
+**Setup experimental:**
+- Q-Learning / DQN / DQN+PER: 20.000 / 6.000 episoade
+- PPO / PPO+RND: 250.000 timesteps
+- Evaluare: 500 episoade
+
+| Algoritm | Mean Reward | Mean Steps | Success Rate |
+|---------|-------------|------------|--------------|
+| Q-Learning | 1.0002 | 13.53 | **88.40%** |
+| DQN | 1.0267 | 13.72 | **89.60%** |
+| DQN + PER | -0.8755 | 118.21 | 2.40% |
+| PPO | -0.1891 | 157.81 | 0.00% |
+| PPO + RND | 0.0383 | 144.88 | 11.00% |
+
+---
+
+### Observații Cheie
+
+- Algoritmii value-based (Q-Learning, DQN) obțin performanțe ridicate
+- Spațiul de stare rămâne suficient de structurat pentru învățare eficientă
+- DQN+PER performează slab, deoarece prioritizează tranziții cu TD-error mare,
+  care corespund frecvent căderilor în găuri
+- PPO eșuează complet, mediul fiind non-staționar în interiorul episodului
+- PPO+RND îmbunătățește explorarea, dar nu suficient pentru convergență
+
+---
+
+### Comparație Easy vs Medium vs Dynamic
+
+| Aspect | EasyFrozenLake | MediumFrozenLake | DynamicFrozenLake |
+|------|---------------|------------------|------------------|
+| Map size | 4×4 | 8×8 | 8×8 |
+| Ice melting | OFF | ON (controlat) | ON (agresiv) |
+| Time-aware state | NU | DA | DA |
+| Success rate maxim | ~100% | ~90% | <30% |
+| Dificultate | Scăzută | Medie | Ridicată |
+
 ---
 
 ## 3. Algoritmi Implementați
