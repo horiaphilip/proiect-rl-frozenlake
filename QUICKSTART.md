@@ -573,9 +573,10 @@ proiect_irl/
 │   ├── ppo.py                      # Proximal Policy Optimization
 │   └── ppo_rnd.py                  # PPO + Random Network Distillation
 │
-├── environments/                    # Medii custom
-│   ├── easy_frozenlake.py          # FrozenLake 4×4 simplificat
-│   └── dynamic_frozenlake.py       # FrozenLake 8×8 dinamic
+├── environments/                        # Medii custom
+│   ├── easy_frozenlake.py               # FrozenLake 4×4 simplificat
+│   └── dynamic_frozenlake.py            # FrozenLake 8×8 dinamic
+|   |__ dynamic_frozenlake_medium_env.py #FrozenLake 8×8 mediu
 │
 ├── experiments/                     # Scripturi experimentale
 │   ├── benchmark_all_agents.py     # Benchmark complet (MAIN)
