@@ -248,7 +248,7 @@ Easy (4×4) → Medium (custom) → Dynamic (8×8)
 
 
 
-  ## 2.3 MediumFrozenLake (8×8) – Dynamic Environment Controlat
+### 2.3 MediumFrozenLake (8×8) – Dynamic Environment Controlat
 
 **Fișier:** `environments/dynamic_frozenlake_medium_env.py`  
 **Mod de utilizare:** configurație intermediară a mediului DynamicFrozenLake
