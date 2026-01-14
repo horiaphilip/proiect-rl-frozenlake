@@ -168,12 +168,12 @@ class DQNAgent:
                 q_values = self.policy_net(state_tensor)
                 return q_values.argmax(dim=1).item()
 
-    def update(self) -> Optional[float]:
+    def update(self) -> Optional[tuple]:
         """
         Actualizează rețeaua folosind un batch din replay buffer.
 
         Returns:
-            Loss-ul mediu sau None dacă buffer-ul nu are suficiente sample-uri
+            Tuple (loss, avg_td_error) sau None dacă buffer-ul nu are suficiente sample-uri
         """
         if len(self.replay_buffer) < self.batch_size:
             return None
@@ -196,6 +196,11 @@ class DQNAgent:
             next_q_values = self.target_net(next_states_tensor).max(dim=1)[0]
             target_q_values = rewards_tensor + (1 - dones_tensor) * self.discount_factor * next_q_values
 
+        # Calculează TD errors (pentru metrici)
+        with torch.no_grad():
+            td_errors = torch.abs(current_q_values - target_q_values)
+            avg_td_error = td_errors.mean().item()
+
         # Calculează loss
         loss = self.criterion(current_q_values, target_q_values)
 
@@ -210,7 +215,7 @@ class DQNAgent:
         if self.training_steps % self.target_update_freq == 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        return loss.item()
+        return loss.item(), avg_td_error
 
     def decay_epsilon(self):
         """Reduce epsilon pentru mai puțină explorare."""
@@ -231,6 +236,7 @@ class DQNAgent:
         total_reward = 0
         steps = 0
         losses = []
+        td_errors = []
 
         while True:
             # Selectează acțiune
@@ -244,9 +250,11 @@ class DQNAgent:
             self.replay_buffer.push(state, action, reward, next_state, float(done))
 
             # Actualizează rețeaua
-            loss = self.update()
-            if loss is not None:
+            update_result = self.update()
+            if update_result is not None:
+                loss, td_error = update_result
                 losses.append(loss)
+                td_errors.append(td_error)
 
             total_reward += reward
             steps += 1
@@ -264,6 +272,7 @@ class DQNAgent:
             'steps': steps,
             'epsilon': self.epsilon,
             'avg_loss': np.mean(losses) if losses else 0.0,
+            'avg_td_error': np.mean(td_errors) if td_errors else 0.0,
             'buffer_size': len(self.replay_buffer)
         }
 
