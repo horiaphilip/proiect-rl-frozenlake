@@ -309,8 +309,6 @@ Testat: 1k, 10k, 100k
 
 ### 5.1 Rezultate Numerice Complete
 
-**Experiment rulat la data:** 14 Ianuarie 2026
-
 #### Easy Environment (4x4)
 
 | Agent | Success Rate | Mean Reward | Mean Steps |
