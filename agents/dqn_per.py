@@ -286,6 +286,7 @@ class DQN_PERAgent:
             y = rewards + self.gamma * (1.0 - dones) * q_next
 
         td_error = (y - q_values).detach().cpu().numpy()
+        avg_td_error = float(np.abs(td_error).mean())
 
         # PER weighted MSE
         loss = (w * (q_values - y) ** 2).mean()
@@ -299,7 +300,7 @@ class DQN_PERAgent:
         self.buffer.update_priorities(leaf_indices, td_error)
 
         self.train_steps += 1
-        return float(loss.item())
+        return float(loss.item()), avg_td_error
 
     def train_episode(self, env) -> Dict[str, Any]:
         state, _ = env.reset()
@@ -307,6 +308,7 @@ class DQN_PERAgent:
         steps = 0
 
         losses = []
+        td_errors = []
 
         while True:
             action = self.select_action(state, training=True)
@@ -319,9 +321,11 @@ class DQN_PERAgent:
 
             self.buffer.add(Transition(s=state, a=action, r=float(reward), s2=next_state, done=done))
 
-            loss = self._learn_one_step()
-            if loss != 0.0:
+            result = self._learn_one_step()
+            if result != 0.0 and isinstance(result, tuple):
+                loss, td_error = result
                 losses.append(loss)
+                td_errors.append(td_error)
 
             # update target network periodically (based on env steps)
             if self.env_steps % self.target_update_freq == 0:
@@ -339,6 +343,7 @@ class DQN_PERAgent:
             "steps": steps,
             "epsilon": float(self.epsilon),
             "avg_loss": float(np.mean(losses)) if losses else 0.0,
+            "avg_td_error": float(np.mean(td_errors)) if td_errors else 0.0,
             "buffer_size": len(self.buffer),
         }
 

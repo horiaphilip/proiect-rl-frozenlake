@@ -178,10 +178,11 @@ def _shaped_reward(self, state, next_state):
 | Parametru | Valoare | Challenge |
 |-----------|---------|-----------|
 | **Map size** | 8×8 (64 stări) | Spațiu de explorare 4× mai mare |
-| **Slippery** | 0.08 → 0.25 (crește) | Dificultate adaptivă în timpul episodului |
-| **Hole ratio** | 18-20% | Densitate mare de pericole |
-| **Ice melting** | ON (controlat) | Mediu dinamic, non-stationar |
-| **Max steps** | 120-140 | Rute mai lungi necesare |
+| **Slippery** | 0.10 → 0.40 (crește) | Dificultate adaptivă în timpul episodului |
+| **Hole ratio** | 20% | Densitate mare de pericole |
+| **Ice melting** | ON (melting_rate=0.005) | Mediu dinamic, non-stationar |
+| **Max steps** | 120 | Rute mai lungi necesare |
+| **Hole penalty** | -1.0 | Penalizare severă la cădere |
 
 #### Mecanisme Dinamice
 
@@ -199,14 +200,15 @@ def step(self, action):
 
 **2. Controlled Ice Melting**
 ```python
-def _maybe_melt_ice(self):
+def _update_ice_melting(self):
     """Topește celule de gheață în găuri cu probabilitate controlată."""
+    # melt_cells_per_step=1, melting_rate=0.005
     if protect_safe_zone_from_melting:
         # Safe zone rămâne sigură
 ```
 - Transformă celule `F` → `H` în timpul episodului
 - Safe zone protejată (previne deadlocks)
-- Rata controlată: 1 celulă per `melt_interval` pași
+- Rata controlată: 1 celulă per pas, probabilitate 0.005
 
 **3. Reward Scaling pentru Convergență**
 ```python
@@ -222,8 +224,8 @@ shaping_scale = 0.02  # Mai subtil decât EasyFrozenLake
 | Aspect | EasyFrozenLake | DynamicFrozenLake | Raport |
 |--------|----------------|-------------------|--------|
 | State Space | 16 | 64 | 4× |
-| Hole Density | 10% | 18-20% | 2× |
-| Slippery (avg) | 0.05 | 0.16 | 3.2× |
+| Hole Density | 10% | 20% | 2× |
+| Slippery (avg) | 0.05 | 0.25 | 5× |
 | Success Rate (DQN+PER) | 100% | ~0-5% | **20×** harder |
 
 **Concluzie:** DynamicFrozenLake reprezintă un **challenge real** care necesită algoritmi robusti și training extins (1000+ episoade).
@@ -2061,10 +2063,84 @@ agent.train(total_timesteps=100000)  # 100k timesteps pentru convergență
 | `benchmark_multi_seed.py` | Multi-seed (5 seeds) | ~20 min | JSON + statistici |
 | `visualize_multi_seed.py` | Grafice multi-seed | < 10s | 3 PNG files |
 | `test_dqn_per_dynamic.py` | Test DQN+PER pe Dynamic 8×8 | ~3 min | Comparație Easy vs Dynamic |
+| `comparative_study.py` | **Studiu Comparativ Complet** | ~45 min | JSON + statistici complete |
+| `visualize_comparative.py` | Vizualizări studiu comparativ | < 30s | 8 PNG files |
 
 ---
 
-### 6.6 Salvare și Încărcare Agenți
+### 6.6 Studiu Comparativ Complet (5 Agenți × 3 Environment-uri)
+
+Studiul comparativ principal rulează toate cele **15 combinații** (5 agenți × 3 medii) cu multiple seed-uri pentru analiză statistică robustă.
+
+#### Rulare Studiu Complet
+
+```bash
+cd experiments
+
+# Studiu complet (3 seeds, ~45 minute)
+python comparative_study.py --seeds 3
+
+# Mod rapid pentru testare (~10 minute)
+python comparative_study.py --seeds 1 --quick
+
+# Studiu extins pentru reproducibilitate (5 seeds, ~75 minute)
+python comparative_study.py --seeds 5
+```
+
+#### Ce Testează
+
+| Environment | Dimensiune | Dificultate | Caracteristici |
+|-------------|------------|-------------|----------------|
+| **Easy** | 4×4 | Ușor | slippery=0.05, fără ice melting |
+| **Medium** | 8×8 | Moderat | slippery=0.02→0.15, ice melting ușor |
+| **Hard** | 8×8 | Dificil | slippery=0.10→0.40, ice melting agresiv |
+
+| Agent | Tip | Caracteristici |
+|-------|-----|----------------|
+| **Q-Learning** | Tabular | Clasic, funcționează pe spații mici |
+| **DQN** | Deep | Generalizare cu rețele neuronale |
+| **DQN-PER** | Deep+PER | Prioritized Experience Replay |
+| **PPO** | Policy Gradient | Actor-Critic, sample efficient |
+| **PPO-RND** | PPO+Exploration | Random Network Distillation |
+
+#### Generare Grafice
+
+```bash
+python visualize_comparative.py
+```
+
+**Grafice generate:**
+- `heatmap_success_rate.png` - Matrice success rate (agent × env)
+- `bars_per_environment.png` - Bar charts per environment
+- `boxplots_variance.png` - Varianta între seed-uri
+- `learning_curves.png` - Curbe de învățare
+- `radar_chart.png` - Comparație multi-dimensională
+- `ranking_final.png` - Clasament general
+- `scalability_analysis.png` - Performanță vs dificultate
+- `summary_figure.png` - Figura sumară cu toate metricile
+
+#### Output Exemplu
+
+```
+SUMAR REZULTATE
+============================================================
+
+Environment: EASY
+============================================================
+Agent        Success Rate         Mean Reward          Mean Steps
+-------------------------------------------------------------------
+Q-Learning   100.0% +/-  0.0%     0.9234 +/- 0.0012    6.5 +/- 0.2
+DQN           98.0% +/-  1.2%     0.8956 +/- 0.0234    7.2 +/- 0.4
+DQN-PER       99.0% +/-  0.8%     0.9123 +/- 0.0156    6.8 +/- 0.3
+PPO           97.0% +/-  2.1%     0.8734 +/- 0.0345    8.1 +/- 0.5
+PPO-RND       96.0% +/-  1.8%     0.8612 +/- 0.0289    8.4 +/- 0.6
+
+  -> Cel mai bun: Q-Learning (100.0% success rate)
+```
+
+---
+
+### 6.7 Salvare și Încărcare Agenți
 
 #### Q-Learning (Pickle)
 

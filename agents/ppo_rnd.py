@@ -298,6 +298,9 @@ class PPORndAgent:
 
         ppo_loss_acc = 0.0
         rnd_loss_acc = 0.0
+        policy_loss_acc = 0.0
+        value_loss_acc = 0.0
+        entropy_acc = 0.0
         steps = 0
 
         states_oh = one_hot(states, self.n_states)  # (T, n_states)
@@ -346,11 +349,17 @@ class PPORndAgent:
 
                 ppo_loss_acc += float(loss.item())
                 rnd_loss_acc += float(rnd_loss.item())
+                policy_loss_acc += float(policy_loss.item())
+                value_loss_acc += float(value_loss.item())
+                entropy_acc += float(entropy_loss.item())
                 steps += 1
 
         return {
             "ppo_loss": ppo_loss_acc / max(steps, 1),
             "rnd_loss": rnd_loss_acc / max(steps, 1),
+            "policy_loss": policy_loss_acc / max(steps, 1),
+            "value_loss": value_loss_acc / max(steps, 1),
+            "entropy": entropy_acc / max(steps, 1),
         }
 
     def get_stats(self) -> Dict[str, float]:
@@ -373,9 +382,17 @@ class PPORndAgent:
             pbar = None
 
         steps_done = 0
+        all_losses = []
+        all_intrinsic_rewards = []
+
         while steps_done < total_timesteps:
             rollout = self._collect_rollout()
-            self._update(*rollout)
+            # rollout[5] = rewards_int tensor
+            intrinsic_rewards = rollout[5].cpu().numpy()
+            all_intrinsic_rewards.extend(intrinsic_rewards.tolist())
+
+            losses = self._update(*rollout)
+            all_losses.append(losses)
 
             steps_done += self.n_steps
             self.training_timesteps += self.n_steps
@@ -387,6 +404,21 @@ class PPORndAgent:
 
         stats = self.get_stats()
         stats["total_timesteps"] = int(self.training_timesteps)
+
+        # Adauga metrici de la ultimul update
+        if all_losses:
+            last_losses = all_losses[-1]
+            stats["ppo_loss"] = last_losses.get("ppo_loss", 0.0)
+            stats["rnd_loss"] = last_losses.get("rnd_loss", 0.0)
+            stats["policy_loss"] = last_losses.get("policy_loss", 0.0)
+            stats["value_loss"] = last_losses.get("value_loss", 0.0)
+            stats["entropy"] = last_losses.get("entropy", 0.0)
+
+        # Intrinsic reward stats
+        if all_intrinsic_rewards:
+            stats["intrinsic_reward_mean"] = float(np.mean(all_intrinsic_rewards))
+            stats["intrinsic_reward_std"] = float(np.std(all_intrinsic_rewards))
+
         return stats
 
     def train_episode(self, env, max_steps: Optional[int] = None) -> Dict[str, Any]:

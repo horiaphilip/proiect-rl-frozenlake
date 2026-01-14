@@ -21,6 +21,12 @@ class TrainingCallback(BaseCallback):
         self.episode_lengths = []
         self.current_episode_reward = 0
         self.current_episode_length = 0
+        # Metrici de loss
+        self.policy_losses = []
+        self.value_losses = []
+        self.entropy_losses = []
+        self.approx_kls = []
+        self.clip_fractions = []
 
     def _on_step(self) -> bool:
         """Apelat la fiecare pas."""
@@ -35,20 +41,53 @@ class TrainingCallback(BaseCallback):
 
         return True
 
+    def _on_rollout_end(self) -> None:
+        """Apelat la finalul fiecărui rollout - capturam loss-urile."""
+        # Accesează logger-ul pentru a obține metrici
+        try:
+            if hasattr(self.model, 'logger') and self.model.logger is not None:
+                logger = self.model.logger
+                if hasattr(logger, 'name_to_value'):
+                    values = logger.name_to_value
+                    if 'train/policy_gradient_loss' in values:
+                        self.policy_losses.append(values['train/policy_gradient_loss'])
+                    if 'train/value_loss' in values:
+                        self.value_losses.append(values['train/value_loss'])
+                    if 'train/entropy_loss' in values:
+                        self.entropy_losses.append(values['train/entropy_loss'])
+                    if 'train/approx_kl' in values:
+                        self.approx_kls.append(values['train/approx_kl'])
+                    if 'train/clip_fraction' in values:
+                        self.clip_fractions.append(values['train/clip_fraction'])
+        except Exception:
+            pass
+
     def get_stats(self) -> Dict[str, float]:
         """Returnează statistici despre ultimele episoade."""
-        if not self.episode_rewards:
-            return {
-                'mean_reward': 0.0,
-                'mean_length': 0.0,
-                'num_episodes': 0
-            }
+        stats = {}
 
-        return {
-            'mean_reward': np.mean(self.episode_rewards[-10:]),  # Ultimele 10 episoade
-            'mean_length': np.mean(self.episode_lengths[-10:]),
-            'num_episodes': len(self.episode_rewards)
-        }
+        if self.episode_rewards:
+            stats['mean_reward'] = float(np.mean(self.episode_rewards[-10:]))
+            stats['mean_length'] = float(np.mean(self.episode_lengths[-10:]))
+            stats['num_episodes'] = len(self.episode_rewards)
+        else:
+            stats['mean_reward'] = 0.0
+            stats['mean_length'] = 0.0
+            stats['num_episodes'] = 0
+
+        # Adauga metrici de loss
+        if self.policy_losses:
+            stats['policy_loss'] = float(np.mean(self.policy_losses[-5:]))
+        if self.value_losses:
+            stats['value_loss'] = float(np.mean(self.value_losses[-5:]))
+        if self.entropy_losses:
+            stats['entropy'] = float(np.mean(self.entropy_losses[-5:]))
+        if self.approx_kls:
+            stats['approx_kl'] = float(np.mean(self.approx_kls[-5:]))
+        if self.clip_fractions:
+            stats['clip_fraction'] = float(np.mean(self.clip_fractions[-5:]))
+
+        return stats
 
 
 class PPOAgent:
@@ -182,7 +221,13 @@ class PPOAgent:
             'total_reward': stats.get('mean_reward', 0.0),
             'steps': stats.get('mean_length', 0.0),
             'num_episodes': stats.get('num_episodes', 0),
-            'total_timesteps': stats.get('total_timesteps', 0)
+            'total_timesteps': stats.get('total_timesteps', 0),
+            # Metrici de loss
+            'policy_loss': stats.get('policy_loss', 0.0),
+            'value_loss': stats.get('value_loss', 0.0),
+            'entropy': stats.get('entropy', 0.0),
+            'approx_kl': stats.get('approx_kl', 0.0),
+            'clip_fraction': stats.get('clip_fraction', 0.0),
         }
 
     def evaluate(self, env: gym.Env, n_episodes: int = 10) -> Dict[str, float]:
