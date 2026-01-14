@@ -608,13 +608,6 @@ Pe medii stationare, RND nu ajuta. Pe medii dinamice, explorarea nu compenseaza 
 - **Environment design e critic** - Un mediu prost conceput poate face debugging imposibil
 - **Reproduce, reproduce, reproduce** - Seed-urile si logging-ul detaliat sunt esentiale
 
-### 6.4 Directii Viitoare
-
-- **Double DQN** - Ar reduce overestimation
-- **SAC** - Poate functiona mai bine pe medii stochastice
-- **Model-based RL** - Ar putea anticipa schimbarile din mediu
-- **Meta-learning** - Adaptare rapida la medii care se schimba
-
 ---
 
 ## 7. Instalare si Utilizare
