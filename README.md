@@ -1,2335 +1,705 @@
-# Proiect Reinforcement Learning - Dynamic FrozenLake
+# Studiu Comparativ: Algoritmi de Reinforcement Learning pe FrozenLake
 
-**Implementare și comparație a 5 algoritmi moderni de RL pe medii FrozenLake custom**
-
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
-[![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29+-green.svg)](https://gymnasium.farama.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## Proiect IRL 2025-2026
 
 ---
 
 ## Cuprins
 
-- [1. Alegerea Temei și Formularea Problemei](#1-alegerea-temei-și-formularea-problemei)
-- [2. Environment: Implementare și Design](#2-environment-implementare-și-design)
-- [3. Algoritmi Implementați](#3-algoritmi-implementați)
-- [4. Experimente și Calibrare](#4-experimente-și-calibrare)
-- [5. Rezultate și Analiză](#5-rezultate-și-analiză)
-- [6. Instalare și Utilizare](#6-instalare-și-utilizare)
-- [7. Structura Proiectului](#7-structura-proiectului)
-- [8. Referințe](#8-referințe)
+1. [Alegerea Temei si Formularea Problemei](#1-alegerea-temei-si-formularea-problemei)
+2. [Environment: Implementare si Design](#2-environment-implementare-si-design)
+3. [Algoritmi Implementati](#3-algoritmi-implementati)
+4. [Experimente si Calibrare](#4-experimente-si-calibrare)
+5. [Rezultate si Analiza](#5-rezultate-si-analiza)
+6. [Concluzii](#6-concluzii)
+7. [Instalare si Utilizare](#7-instalare-si-utilizare)
+8. [Referinte](#8-referinte)
 
 ---
 
-## 1. Alegerea Temei și Formularea Problemei
+## 1. Alegerea Temei si Formularea Problemei
 
-### 1.1 Tema și Relevanța
+### 1.1 Motivatia Proiectului
 
-Acest proiect implementează și compară **5 algoritmi moderni de Reinforcement Learning** pe variante custom ale problemei **FrozenLake**, un mediu clasic de RL care simulează navigarea pe o suprafață înghețată.
+Am ales sa implementam un studiu comparativ al algoritmilor de Reinforcement Learning pe problema FrozenLake din mai multe motive:
 
-**Relevanță pentru RL:**
-- Problema cu **sparse rewards** (reward doar la atingerea goal-ului)
-- **Stochastic environment** (alunecare pe gheață)
-- **Explorare vs. exploatare** (găsirea rutei optime)
-- Scalabilitate de la simple (4x4) la complex (8x8)
+- **Problema clasica de navigare** - agentul trebuie sa gaseasca drumul optim de la start la goal evitand gaurile
+- **Sparse rewards** - feedback-ul este rar (doar la succes/esec), ceea ce face explorarea critica
+- **Stocasticitate** - alunecare pe gheata introduce incertitudine, testandu-se robustetea algoritmilor
+- **Scalabilitate** - putem varia dimensiunea si complexitatea mediului
 
-### 1.2 Definirea Formală a Problemei
+### 1.2 Formularea ca MDP
 
-Problema este formulată ca un **Markov Decision Process (MDP)** cu următoarele componente:
+Problema este modelata formal ca un **Markov Decision Process**:
 
-#### State Space (S)
-- **EasyFrozenLake**: 16 stări (grilă 4×4)
-- **DynamicFrozenLake**: 64 stări (grilă 8×8)
-- Fiecare celulă poate fi:
-  - `S` = Start (poziția inițială)
-  - `F` = Frozen (gheață sigură)
-  - `H` = Hole (gaură - terminal state negativ)
-  - `G` = Goal (ținta - terminal state pozitiv)
+**State Space (S):**
+- Grid 2D unde fiecare celula = o stare
+- Tipuri de celule: Start (S), Frozen (F), Hole (H), Goal (G)
+- Easy: 16 stari (4x4), Medium/Hard: 64 stari (8x8)
 
-#### Action Space (A)
-Spațiu discret cu 4 acțiuni:
-```python
+**Action Space (A):**
+```
 A = {0: LEFT, 1: DOWN, 2: RIGHT, 3: UP}
 ```
 
-#### Transition Dynamics (P)
-Mediul este **stochastic** datorită fenomenului de alunecare:
-- Cu probabilitate `(1 - slippery)`: acțiunea are efectul dorit
-- Cu probabilitate `slippery/2`: agentul alunecă perpendicular (stânga/dreapta față de direcția dorită)
+**Transition Function P(s'|s,a):**
+- Cu probabilitate `1 - slip`: miscarea dorita
+- Cu probabilitate `slip/2`: alunecare laterala (stanga sau dreapta fata de directie)
 
-**Exemple:**
-- `slippery = 0.05` (EasyFrozenLake): 95% control, 5% alunecare
-- `slippery = 0.08 → 0.25` (DynamicFrozenLake): dificultate crescândă
+**Reward Function R(s,a,s'):**
+| Tranzitie | Reward |
+|-----------|--------|
+| Atingere Goal | +1.0 |
+| Cadere in Hole | -0.5 (Easy) / -1.0 (Hard) |
+| Pas normal | -0.01 (step penalty) |
 
-#### Reward Function (R)
-Funcție complexă cu **reward shaping** pentru ghidare:
+**Discount Factor:** γ = 0.99
 
-**Reward de bază:**
-```
-R(s, a, s') = {
-    +1.0     dacă s' = G (goal atins)
-    -0.5     dacă s' = H (căzut în gaură)
-    -0.01    pentru fiecare pas (penalizare timp)
-}
-```
-
-**Reward shaping** (opțional, pentru convergență mai rapidă):
-```python
-shaped_reward = base_reward + shaping_scale * (potential(s') - potential(s))
-
-# Potential function (distanța Manhattan la goal)
-potential(s) = -distance_to_goal(s)
-```
-
-Acest design **ghidează agentul** către goal fără a schimba policy-ul optim.
-
-#### Objective
-Găsește policy optimă:
-```
-π* = argmax_π E[Σ γ^t R_t | π]
-```
-unde:
-- `γ = 0.99` (discount factor)
-- `π: S → A` (policy-ul agentului)
-
-#### Episode Termination
-Un episod se termină când:
-1. Agentul atinge **Goal** (G) → Success
-2. Agentul cade în **Hole** (H) → Failure
-3. Se atinge `max_steps` (50 pentru Easy, 120 pentru Dynamic) → Timeout
+**Obiectiv:** Gasirea politicii optime π* care maximizeaza suma recompenselor actualizate.
 
 ---
 
-## 2. Environment: Implementare și Design
+## 2. Environment: Implementare si Design
 
-Proiectul include **două medii custom** implementate de la zero, fiecare cu caracteristici distincte și nivele de dificultate diferite.
+Am implementat **3 variante custom** ale mediului FrozenLake, fiecare cu un nivel de dificultate diferit.
 
-### 2.1 EasyFrozenLake (4×4) - Environment Optimizat
+### 2.1 EasyFrozenLake (4x4)
 
-**Fișier:** `environments/easy_frozenlake.py`
+**Fisier:** `environments/easy_frozenlake.py`
 
-#### Caracteristici Tehnice
+| Caracteristica | Valoare | Motivatie |
+|----------------|---------|-----------|
+| Dimensiune | 4x4 | Spatiu mic, usor de invatat |
+| Slippery | 5% constant | Control ridicat |
+| Densitate gauri | 10% | Risc scazut |
+| Max steps | 50 | Suficient pentru solutie optima |
+| Reward shaping | Da (scale=0.05) | Accelereaza convergenta |
 
-| Parametru | Valoare | Justificare |
-|-----------|---------|-------------|
-| **Map size** | 4×4 (16 stări) | Spațiu de stări gestionabil pentru Q-Learning tabular |
-| **Slippery** | 0.05 (constant) | Mediu aproape determinist pentru învățare rapidă |
-| **Hole ratio** | 10% (~1-2 găuri) | Suficient de sigur pentru explorare |
-| **Safe zone** | 2×2 lângă start | Previne terminare instantanee, garantează explorare |
-| **Ice melting** | OFF | Mediu static, ușor de învățat |
-| **Reward shaping** | ON (scale=0.05) | Ghidare pronunțată către goal |
-| **Max steps** | 50 | Suficient pentru rute optime (6-7 pași) |
+**Caracteristici speciale:**
+- **Safe zone 2x2** langa start - previne esecurile imediate
+- **Verificare BFS** - garanteaza ca exista solutie
+- **Regenerare automata** - daca harta e invalida, se recreaza
 
-#### Inovații în Design
+### 2.2 MediumFrozenLake (8x8)
 
-**1. Solvability Check (BFS)**
-```python
-def _is_solvable(self) -> bool:
-    """Verifică dacă există drum de la S la G folosind BFS."""
-```
-- Garantează că **există soluție** înainte de training
-- Evită frustrarea cu hărți imposibile
-- Regenerează automat hartă invalidă (max 200 încercări)
+**Fisier:** `environments/dynamic_frozenlake_medium_env.py`
 
-**2. Protected Safe Zone**
-```python
-def _generate_map(self):
-    # Safe zone: 2×2 lângă start
-    safe_positions = [(0,0), (0,1), (1,0), (1,1)]
-    # Nu se generează găuri în safe zone
-```
-- Permite agentului să **exploreze sigur** la început
-- Evită esecuri imediate care blochează învățarea
-- Design inspirat din curriculum learning
+| Caracteristica | Valoare | Motivatie |
+|----------------|---------|-----------|
+| Dimensiune | 8x8 | Spatiu de 4x mai mare |
+| Slippery | 2% → 15% progresiv | Dificultate crescatoare |
+| Ice melting | Da (controlat) | Non-stationaritate |
+| Time buckets | 10 | Stare augmentata temporal |
+| Protected path | Da | Garanteaza solvabilitate |
 
-**3. Reward Shaping Adaptat**
-```python
-def _shaped_reward(self, state, next_state):
-    # Distanța Manhattan la goal
-    potential_next = -self._manhattan_distance(next_state, goal)
-    potential_curr = -self._manhattan_distance(state, goal)
-    return self.shaping_scale * (potential_next - potential_curr)
-```
-- **Potential-based shaping** (Ng et al., 1999)
-- Nu schimbă policy optimă
-- Accelerare convergență cu 30-50%
+**Inovatie:** Mediul se modifica in timpul episodului - gheata se topeste gradual, transformand celule sigure in gauri. Totusi, drumul cel mai scurt ramane protejat.
 
-#### Rezultate pe EasyFrozenLake
+### 2.3 HardFrozenLake (8x8 Dynamic)
 
-| Algorithm | Success Rate | Mean Steps | Training Episodes |
-|-----------|--------------|------------|-------------------|
-| Q-Learning | **100%** | 6.54 | 500 |
-| DQN | 32% | 32.76 | 500 |
-| **DQN+PER** | **100%** | **6.37** ⭐ | 500 |
-| PPO | **100%** | 6.38 | 25k steps |
-| PPO+RND | **100%** | 6.40 | 25k steps |
+**Fisier:** `environments/dynamic_frozenlake.py`
 
-**Observație:** 4 din 5 algoritmi ating 100% success rate, demonstrând că mediul este **well-designed** pentru învățare.
+| Caracteristica | Valoare | Motivatie |
+|----------------|---------|-----------|
+| Dimensiune | 8x8 | Spatiu mare |
+| Slippery | 10% → 40% | Control foarte scazut |
+| Densitate gauri | 20% | Pericol ridicat |
+| Ice melting | Agresiv | Mediu extrem de dinamic |
+| Hole penalty | -1.0 | Penalizare severa |
+
+**Challenge:** Acest mediu este conceput sa fie extrem de dificil. Combinatia dintre alunecare mare, multe gauri si topire agresiva face ca niciun algoritm standard sa nu poata rezolva problema consistent.
+
+### 2.4 Comparatie Medii
+
+| Aspect | Easy | Medium | Hard |
+|--------|------|--------|------|
+| State space | 16 | 640 (cu time) | 64 |
+| Slippery mediu | 5% | 8.5% | 25% |
+| Dinamica | Statica | Lenta | Rapida |
+| Solvabilitate | ~100% | ~60-70% | <5% |
 
 ---
 
-### 2.2 DynamicFrozenLake (8×8) - Challenge Mode
+## 3. Algoritmi Implementati
 
-**Fișier:** `environments/dynamic_frozenlake.py`
-
-#### Caracteristici Avansate
-
-| Parametru | Valoare | Challenge |
-|-----------|---------|-----------|
-| **Map size** | 8×8 (64 stări) | Spațiu de explorare 4× mai mare |
-| **Slippery** | 0.10 → 0.40 (crește) | Dificultate adaptivă în timpul episodului |
-| **Hole ratio** | 20% | Densitate mare de pericole |
-| **Ice melting** | ON (melting_rate=0.005) | Mediu dinamic, non-stationar |
-| **Max steps** | 120 | Rute mai lungi necesare |
-| **Hole penalty** | -1.0 | Penalizare severă la cădere |
-
-#### Mecanisme Dinamice
-
-**1. Progressive Slipperiness**
-```python
-def step(self, action):
-    # Slippery crește liniar cu numărul de pași
-    current_slippery = self.slippery_start +
-                      (self.slippery_end - self.slippery_start) *
-                      (self.current_step / self.max_steps)
-```
-- Simulează **topirea gheții** progresivă
-- Non-stationarity: policy optimă se schimbă în timp
-- Testează **adaptabilitatea** algoritmilor
-
-**2. Controlled Ice Melting**
-```python
-def _update_ice_melting(self):
-    """Topește celule de gheață în găuri cu probabilitate controlată."""
-    # melt_cells_per_step=1, melting_rate=0.005
-    if protect_safe_zone_from_melting:
-        # Safe zone rămâne sigură
-```
-- Transformă celule `F` → `H` în timpul episodului
-- Safe zone protejată (previne deadlocks)
-- Rata controlată: 1 celulă per pas, probabilitate 0.005
-
-**3. Reward Scaling pentru Convergență**
-```python
-shaped_rewards = True
-shaping_scale = 0.02  # Mai subtil decât EasyFrozenLake
-```
-- Reward shaping mai subtil (evită overfitting la shortcuts)
-- Bonus mai mic pentru pași către goal
-- Echilibrare explorare vs. exploatare
-
-#### Comparație Dificultate
-
-| Aspect | EasyFrozenLake | DynamicFrozenLake | Raport |
-|--------|----------------|-------------------|--------|
-| State Space | 16 | 64 | 4× |
-| Hole Density | 10% | 20% | 2× |
-| Slippery (avg) | 0.05 | 0.25 | 5× |
-| Success Rate (DQN+PER) | 100% | ~0-5% | **20×** harder |
-
-**Concluzie:** DynamicFrozenLake reprezintă un **challenge real** care necesită algoritmi robusti și training extins (1000+ episoade).
-
----
-
-### 2.3 Design Philosophy: Curriculum Learning
-
-Proiectul implementează un **curriculum de dificultate** progresivă:
-
-```
-Easy (4×4) → Medium (custom) → Dynamic (8×8)
-  100%          70-80%           < 5%
-(Proof-of-concept) (Tuning)  (Research)
-```
-
-**Beneficii:**
-- **Debugging rapid** pe Easy
-- **Validare implementări** înainte de challenge
-- **Comparare echitabilă** între algoritmi
-- **Generalizare** prin transfer learning
-
-
-
-### 2.3 MediumFrozenLake (8×8) – Dynamic Environment Controlat
-
-**Fișier:** `environments/dynamic_frozenlake_medium_env.py`  
-**Mod de utilizare:** configurație intermediară a mediului DynamicFrozenLake
-
-MediumFrozenLake reprezintă o variantă intermediară între EasyFrozenLake și DynamicFrozenLake,
-fiind conceput pentru a testa robustețea algoritmilor de Reinforcement Learning într-un mediu dinamic,
-dar încă solvabil.
-
----
-
-### Caracteristici Tehnice
-
-| Parametru | Valoare | Justificare |
-|----------|--------|-------------|
-| Map size | 8×8 (64 stări) | Spațiu de explorare semnificativ mai mare decât Easy |
-| Time-aware state | 2 time buckets | Introduce noțiunea de timp fără explozie de stare |
-| Slippery | 0.02 → 0.12 | Dificultate progresivă, dar moderată |
-| Hole ratio | 10% | Mai sigur decât Challenge, dar nu trivial |
-| Ice melting | ON (controlat) | Dinamică non-staționară |
-| Melt delay | 25 pași | Permite explorare inițială sigură |
-| Melt rate | 0.002 | Topire lentă, graduală |
-| Step penalty | -0.001 | Penalizează rutele lungi |
-| Reward shaping | ON (scale = 0.02) | Ghidare subtilă către goal |
-| Safe zone | Protejată | Evită eșecuri premature |
-| Protected path | ON | Garantează existența unei soluții |
-
----
-
-### Inovații în Design
-
-#### 1. Stare augmentată cu timp (Time-aware State)
-
-Starea agentului este extinsă pentru a include informație temporală discretizată în *time buckets*.  
-Astfel, observația nu mai reprezintă doar poziția pe hartă, ci și faza episodului.
-
-Această abordare:
-- permite agenților să distingă între începutul episodului (mediu stabil)
-- și finalul episodului (mediu degradat)
-- introduce non-staționaritate controlată fără a folosi rețele recurente
-
-Această decizie crește realismul mediului fără a complica excesiv spațiul de stare.
-
----
-
-#### 2. Protejarea drumului minim (Shortest Path Protection)
-
-Pentru a preveni situațiile imposibile cauzate de topirea gheții, mediul calculează drumul minim
-între start și goal folosind BFS (Breadth-First Search).
-
-Celulele care aparțin acestui drum:
-- sunt protejate împotriva topirii
-- nu pot deveni găuri
-- rămân traversabile pe durata episodului
-
-Această măsură garantează solvabilitatea mediului chiar și în prezența dinamicii non-staționare.
-
----
-
-#### 3. Ice Melting Controlat
-
-Topirea gheții este activată doar după un număr inițial de pași (melt delay),
-permițând agentului să exploreze mediul înainte ca dificultatea să crească.
-
-Caracteristici:
-- maxim o celulă afectată per pas
-- safe zone și drumul minim sunt excluse
-- probabilitatea de transformare crește gradual
-
-Rezultatul este o dinamică locală, nu o degradare globală haotică a mediului.
-
----
-
-#### 4. Reward Shaping Subtil
-
-Mediul folosește potential-based reward shaping bazat pe distanța Manhattan până la goal.
-
-Comparativ cu EasyFrozenLake:
-- scala este redusă
-- shaping-ul este mai puțin dominant
-- agentul nu este forțat către o traiectorie rigidă
-
-Această abordare accelerează convergența fără a modifica politica optimă.
-
----
-
-### Rezultate pe MediumFrozenLake
-
-**Setup experimental:**
-- Q-Learning / DQN / DQN+PER: 20.000 / 6.000 episoade
-- PPO / PPO+RND: 250.000 timesteps
-- Evaluare: 500 episoade
-
-| Algoritm | Mean Reward | Mean Steps | Success Rate |
-|---------|-------------|------------|--------------|
-| Q-Learning | 1.0002 | 13.53 | **88.40%** |
-| DQN | 1.0267 | 13.72 | **89.60%** |
-| DQN + PER | -0.8755 | 118.21 | 2.40% |
-| PPO | -0.1891 | 157.81 | 0.00% |
-| PPO + RND | 0.0383 | 144.88 | 11.00% |
-
----
-
-### Observații Cheie
-
-- Algoritmii value-based (Q-Learning, DQN) obțin performanțe ridicate
-- Spațiul de stare rămâne suficient de structurat pentru învățare eficientă
-- DQN+PER performează slab, deoarece prioritizează tranziții cu TD-error mare,
-  care corespund frecvent căderilor în găuri
-- PPO eșuează complet, mediul fiind non-staționar în interiorul episodului
-- PPO+RND îmbunătățește explorarea, dar nu suficient pentru convergență
-
----
-
-### Comparație Easy vs Medium vs Dynamic
-
-| Aspect | EasyFrozenLake | MediumFrozenLake | DynamicFrozenLake |
-|------|---------------|------------------|------------------|
-| Map size | 4×4 | 8×8 | 8×8 |
-| Ice melting | OFF | ON (controlat) | ON (agresiv) |
-| Time-aware state | NU | DA | DA |
-| Success rate maxim | ~100% | ~90% | <30% |
-| Dificultate | Scăzută | Medie | Ridicată |
-
----
-
-## 3. Algoritmi Implementați
-
-Proiectul implementează **5 algoritmi moderni** care acoperă cele 3 familii principale de RL:
-
-1. **Value-based (tabular)**: Q-Learning
-2. **Value-based (deep)**: DQN, DQN+PER
-3. **Policy-based**: PPO, PPO+RND
+Am implementat **5 algoritmi** care acopera toate familiile principale de RL:
 
 ### 3.1 Q-Learning (Tabular)
 
-**Fișier:** `agents/q_learning.py` (264 linii)
+**Fisier:** `agents/q_learning.py`
 
-#### Descriere
-Algoritm **clasic tabular** de RL (Watkins & Dayan, 1992).
+Algoritm clasic value-based care mentine o tabela Q(s,a) pentru fiecare pereche stare-actiune.
 
-#### Implementare
-```python
-class QLearningAgent:
-    def __init__(self, n_states, n_actions, learning_rate=0.1,
-                 discount_factor=0.99, epsilon_start=1.0):
-        # Q-table: numpy array (n_states × n_actions)
-        self.q_table = np.zeros((n_states, n_actions))
+**Regula de update:**
+```
+Q(s,a) ← Q(s,a) + α[r + γ·max_a' Q(s',a') - Q(s,a)]
 ```
 
-**Update rule:**
-```
-Q(s,a) ← Q(s,a) + α [r + γ max_a' Q(s',a') - Q(s,a)]
-```
+**Hiperparametri folositi:**
+- Learning rate α = 0.1
+- Discount γ = 0.99
+- Epsilon: 1.0 → 0.01 (decay 0.995)
 
-#### Caracteristici
-- **Exploration:** ε-greedy cu decay exponențial (1.0 → 0.01)
-- **Storage:** Pickle pentru salvare/încărcare Q-table
-- **Convergență:** Garantată dacă toate state-action pairs sunt vizitate
-
-#### Hiperparametri Optimizați
-```python
-learning_rate = 0.1      # Alpha: balance între vechi/nou
-discount_factor = 0.99   # Gamma: horizont lung
-epsilon_start = 1.0      # Explorare inițială maximă
-epsilon_end = 0.01       # Exploatare finală
-epsilon_decay = 0.995    # Decay exponențial
-```
-
-#### Rezultate
-- **Success Rate:** 100% (pe EasyFrozenLake seed=42)
-- **Mean Steps:** 6.54
-- **Training:** 500 episoade
-- **Avantaj:** Simplu, interpretabil, convergență garantată
-
-#### Limitări
-- **Scalabilitate:** Nu funcționează pe state spaces mari (curse of dimensionality)
-- **Variabilitate:** Instabil pe seed-uri dificile (33% pe seed=789, 0% pe seed=1024)
-
----
+**Avantaje:** Simplu, convergenta garantata, interpretabil
+**Dezavantaje:** Nu scaleaza la spatii mari de stari
 
 ### 3.2 DQN (Deep Q-Network)
 
-**Fișier:** `agents/dqn.py` (378 linii)
+**Fisier:** `agents/dqn.py`
 
-#### Descriere
-Extindere **deep learning** a Q-Learning (Mnih et al., 2015), folosind rețele neuronale pentru aproximare.
+Aproximeaza functia Q cu o retea neurala, permitand generalizare.
 
-#### Arhitectură Rețea
-```python
-class QNetwork(nn.Module):
-    def __init__(self, n_states, n_actions, hidden_dim=128):
-        self.network = nn.Sequential(
-            nn.Linear(n_states, hidden_dim),  # Input layer
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), # Hidden layer
-            nn.ReLU(),
-            nn.Linear(hidden_dim, n_actions)   # Output layer (Q-values)
-        )
+**Arhitectura:**
+```
+Input(n_states) → Dense(128) → ReLU → Dense(128) → ReLU → Output(n_actions)
 ```
 
-**Input:** One-hot encoding al state-ului (n_states,)
-**Output:** Q-values pentru fiecare acțiune (n_actions,)
+**Componente cheie:**
+- **Experience Replay** (buffer 10k) - reduce corelatia intre sample-uri
+- **Target Network** - stabilizeaza training-ul (update la 10 episoade)
+- **Huber Loss** - robustete la outliers
 
-#### Componente Cheie
+**Hiperparametri:**
+- Learning rate: 0.001
+- Batch size: 64
+- Epsilon decay: 0.995
 
-**1. Experience Replay Buffer**
-```python
-class ReplayBuffer:
-    def __init__(self, capacity=10000):
-        self.buffer = deque(maxlen=capacity)
+### 3.3 DQN cu Prioritized Experience Replay (DQN-PER)
 
-    def sample(self, batch_size):
-        # Sampling uniform random
-        return random.sample(self.buffer, batch_size)
+**Fisier:** `agents/dqn_per.py`
+
+Extensie a DQN care prioritizeaza tranzitiile cu TD-error mare.
+
+**Idee:** Nu toate experientele sunt la fel de valoroase. Tranzitiile cu eroare mare de predictie contin mai multa informatie pentru invatare.
+
+**Prioritate:**
 ```
-- Reduce correlații între experiențe consecutive
-- Sample efficiency prin replayare multiplă
-- Capacitate: 10,000 tranziții
-
-**2. Target Network**
-```python
-self.target_network = copy.deepcopy(self.q_network)
-
-# Update periodic (la fiecare target_update_freq pași)
-if steps % target_update_freq == 0:
-    self.target_network.load_state_dict(self.q_network.state_dict())
-```
-- Stabilizează training-ul
-- Previne oscilații în Q-values
-- Update la fiecare 100 pași
-
-**3. Loss Function (Huber Loss)**
-```python
-loss = F.smooth_l1_loss(q_values, target_q_values)
-
-# Unde:
-# q_values = Q_network(s)[a]
-# target_q_values = r + γ * max_a' Q_target(s')
+P(i) ∝ |δᵢ|^α   unde δᵢ = TD-error pentru tranzitia i
 ```
 
-#### Hiperparametri
-```python
-learning_rate = 0.001
-batch_size = 64
-buffer_capacity = 10000
-target_update_freq = 100
-epsilon_decay = 0.995
-gamma = 0.99
+**Importance Sampling:** Pentru a corecta bias-ul introdus de sampling non-uniform:
+```
+wᵢ = (1/(N·P(i)))^β
 ```
 
-#### Rezultate
-- **Success Rate:** 32% (suboptimal, necesită mai mult tuning)
-- **Mean Steps:** 32.76
-- **Training:** 500 episoade
-- **Observație:** Variance mare, instabil
-
-#### Limitări Identificate
-- **Sample inefficiency:** Sampling uniform nu prioritizează experiențe importante
-- **Convergență lentă:** 500 episoade insuficiente
-- **Necesită tuning:** Hiperparametri sensibili
-
----
-
-### 3.3 DQN + PER (Prioritized Experience Replay) ⭐ CÂȘTIGĂTOR
-
-**Fișier:** `agents/dqn_per.py` (378 linii)
-
-#### Descriere
-DQN îmbunătățit cu **Prioritized Experience Replay** (Schaul et al., 2015), care sample-uiește experiențe bazat pe TD-error.
-
-#### Motivație
-DQN vanilla sample-uiește uniform din replay buffer, ignorând că **unele tranziții sunt mai informative**:
-- Tranziții cu TD-error mare → agentul "învață mai mult"
-- Tranziții cu TD-error mic → "deja învățate bine"
-
-**PER** concentrează training-ul pe experiențele importante.
-
-#### Implementare: SumTree Data Structure
-
-```python
-class SumTree:
-    """
-    Binary tree pentru sampling eficient O(log n).
-    Fiecare leaf = experiență cu prioritate.
-    Parent = sum(children priorities).
-    """
-    def __init__(self, capacity):
-        self.capacity = capacity  # Număr max experiențe
-        self.tree = np.zeros(2 * capacity - 1)  # Binary tree complet
-        self.data = np.zeros(capacity, dtype=object)  # Experiențele
-        self.write = 0
-
-    def update(self, idx, priority):
-        """Update prioritate în O(log n)."""
-
-    def sample(self, batch_size):
-        """Sample proporțional cu prioritate în O(log n)."""
-```
-
-**Avantaje SumTree:**
-- Sampling în **O(log n)** vs O(n) pentru linear scan
-- Update prioritate în **O(log n)**
-- Eficiență critică pentru buffer mare (10k+ experiențe)
-
-#### Prioritizare și Importance Sampling
-
-**1. Prioritate bazată pe TD-error:**
-```python
-# TD-error pentru experiență i
-td_error_i = |r + γ * max_a' Q(s',a') - Q(s,a)|
-
-# Prioritate (α=0.6 pentru smoothing)
-priority_i = (|td_error_i| + ε)^α
-```
-- `ε = 1e-5` previne prioritate zero
-- `α = 0.6` controlează cât de "agresiv" prioritizăm
-
-**2. Sampling probability:**
-```python
-P(i) = priority_i / Σ_k priority_k
-```
-
-**3. Importance Sampling Weights:**
-```python
-# Corectare bias introdus de non-uniform sampling
-w_i = (N * P(i))^(-β)
-
-# β annealing: 0.4 → 1.0 în timpul training-ului
-beta = beta_start + (1.0 - beta_start) * (step / max_steps)
-```
-- `β = 0.4` la început (bias mai mare tolerat)
-- `β → 1.0` către final (corectare completă)
-
-#### Gradient Update cu IS Weights
-```python
-# Loss weighted by importance sampling
-loss = (is_weights * td_errors^2).mean()
-
-# Update priorities după backward pass
-new_priorities = |td_errors| + ε
-```
-
-#### Hiperparametri Calibrați
-```python
-learning_rate = 0.001
-per_alpha = 0.6           # Exponent prioritizare
-per_beta_start = 0.4      # IS weight start
-per_beta_frames = 500     # Annealing duration (episodes)
-buffer_capacity = 10000
-batch_size = 64
-epsilon_decay = 0.995
-```
-
-#### Rezultate - Performanță Excepțională
-- **Success Rate:** 100% ⭐
-- **Mean Steps:** 6.37 (cel mai eficient!)
-- **Efficiency Score:** 15.70 (best overall)
-- **Training:** 500 episoade
-
-**Impact PER:**
-```
-DQN vanilla:    32% success rate
-DQN + PER:     100% success rate
-Îmbunătățire:  +68 puncte procentuale (+212%)
-```
-
-#### Analiza Avantajelor
-
-**De ce câștigă DQN+PER:**
-
-1. **Sample Efficiency**: Învață 3× mai rapid din aceleași experiențe
-2. **Focus pe Erori Mari**: Prioritizează experiențe neașteptate (gauri aproape de start, rute surprinzătoare)
-3. **Convergență Stabilă**: IS weights previne divergență
-4. **Robuștete**: Funcționează bine pe multiple seed-uri (4/5 seeds cu 100%)
-
-**Când eșuează:**
-- Seed 1024: 1% success (hartă extrem de dificilă, imposibil de rezolvat chiar și cu PER)
-
----
+**Parametri PER:**
+- α = 0.6 (cat de mult conteaza prioritatea)
+- β = 0.4 → 1.0 (corectie importance sampling)
 
 ### 3.4 PPO (Proximal Policy Optimization)
 
-**Fișier:** `agents/ppo.py` (200+ linii)
+**Fisier:** `agents/ppo.py`
 
-#### Descriere
-Algoritm **policy gradient** modern (Schulman et al., 2017) cu clipping pentru stabilitate.
+Algoritm policy gradient care invata direct politica, nu functia de valoare.
 
-#### Diferențe Fundamentale față de DQN
-| Aspect | DQN (Value-based) | PPO (Policy-based) |
-|--------|-------------------|-------------------|
-| **Output** | Q-values pentru fiecare acțiune | Distribuție probabilitate peste acțiuni |
-| **Learning** | Învață funcția valoare Q(s,a) | Învață direct policy π(a\|s) |
-| **Explorare** | ε-greedy (discrete) | Stochastic policy (sampling) |
-| **Sample Efficiency** | Mai bună (replay buffer) | Mai slabă (on-policy) |
-| **Stabilitate** | Instabil (necesită tricks) | Foarte stabil (clipping) |
+**Implementare:** Folosim Stable-Baselines3 pentru robustete.
 
-#### Arhitectură Actor-Critic (din Stable-Baselines3)
-```python
-# Actor: π(a|s) - policy network
-actor: Categorical distribution peste acțiuni
+**Obiectiv clipped:**
+```
+L = E[min(rₜ·Aₜ, clip(rₜ, 1-ε, 1+ε)·Aₜ)]
+```
+unde rₜ = π(a|s)/π_old(a|s)
 
-# Critic: V(s) - value network
-critic: Scalar value estimate pentru state
+**Hiperparametri:**
+- Learning rate: 3e-4
+- Clip range: 0.2
+- n_steps: 512
+- Batch size: 64
 
-# Shared feature extractor
-feature_extractor: MLP(64, 64) cu Tanh activation
+**Training:** Bazat pe timesteps, nu episoade:
+- Easy: 25,000 timesteps
+- Medium: 100,000 timesteps
+- Hard: 150,000 timesteps
+
+### 3.5 PPO-RND (cu Random Network Distillation)
+
+**Fisier:** `agents/ppo_rnd.py`
+
+PPO extins cu **curiosity intrinseca** pentru explorare mai buna.
+
+**Mecanism RND:**
+- **Target network** (frozen, random) - produce output fix pentru fiecare stare
+- **Predictor network** (trainable) - invata sa prezica output-ul target-ului
+- **Intrinsic reward** = eroarea de predictie
+
+**Logica:** Starile noi/nevizitate au eroare mare de predictie → bonus de explorare.
+
+**Reward total:**
+```
+r_total = r_extrinsic + β·normalize(r_intrinsic)
+β = 0.01
 ```
 
-#### Obiectiv Clipat (Clipped Surrogate Objective)
+### 3.6 Rezumat Algoritmi
 
-**Formula:**
-```
-L^CLIP(θ) = E[min(r_t(θ) * A_t, clip(r_t(θ), 1-ε, 1+ε) * A_t)]
-
-unde:
-- r_t(θ) = π_θ(a_t|s_t) / π_θ_old(a_t|s_t)  (probability ratio)
-- A_t = advantage estimate (GAE)
-- ε = 0.2 (clip range)
-```
-
-**Intuiție:**
-- Dacă `r_t > 1 + ε`: policy nouă e "prea diferită" → clip la 1+ε
-- Dacă `r_t < 1 - ε`: policy nouă e "prea diferită" → clip la 1-ε
-- Altfel: folosește `r_t` normal
-
-**Beneficiu:** Previne update-uri mari care destabilizează training-ul.
-
-#### Generalized Advantage Estimation (GAE)
-
-```python
-# GAE(λ) pentru estimare avantaj
-A_t = Σ_{l=0}^∞ (γλ)^l * δ_{t+l}
-
-unde:
-- δ_t = r_t + γV(s_{t+1}) - V(s_t)  (TD residual)
-- λ = 0.95 (GAE lambda)
-- γ = 0.99 (discount)
-```
-
-**Trade-off:** `λ` controlează bias vs. variance:
-- `λ = 0` → Bias mare, variance mică (doar TD(0))
-- `λ = 1` → Bias mic, variance mare (Monte Carlo)
-- `λ = 0.95` → Echilibru optim
-
-#### Loss Function Totală
-```python
-total_loss = policy_loss - entropy_coef * entropy_loss + vf_coef * value_loss
-
-unde:
-- policy_loss = -L^CLIP(θ)  (maximize obiectiv clipat)
-- entropy_loss = -H(π)  (encourage explorare)
-- value_loss = MSE(V(s), returns)  (critic accuracy)
-- entropy_coef = 0.0  (fără bonus explorare, nu e nevoie)
-- vf_coef = 0.5  (importance value function)
-```
-
-#### Hiperparametri Configurați
-```python
-learning_rate = 3e-4     # LR standard PPO
-n_steps = 512            # Rollout length (colectare experiențe)
-batch_size = 64          # Mini-batch pentru SGD
-n_epochs = 10            # Epochs per rollout (reuse data)
-gamma = 0.99             # Discount factor
-gae_lambda = 0.95        # GAE trade-off
-clip_range = 0.2         # Clipping ε
-ent_coef = 0.0           # Entropy bonus (OFF)
-vf_coef = 0.5            # Value function loss weight
-max_grad_norm = 0.5      # Gradient clipping
-```
-
-#### Callback Custom pentru Statistici
-```python
-class EvalCallback(BaseCallback):
-    """Colectează success rate, mean steps, mean reward în timpul training-ului."""
-    def _on_step(self) -> bool:
-        if self.n_calls % eval_freq == 0:
-            # Evaluare pe 100 episoade
-            success_rate = np.mean([episode_success for _ in range(100)])
-```
-
-#### Rezultate - Stabilitate Maximă
-- **Success Rate:** 100%
-- **Mean Steps:** 6.38
-- **Training:** 25,000 timesteps (~500 episoade)
-- **Stabilitate:** std = 2.33% pe 5 seeds (cea mai mică!)
-
-#### Analiza Multi-Seed (Reproducibilitate)
-
-| Seed | Success Rate | Mean Reward | Mean Steps |
-|------|--------------|-------------|------------|
-| 42 | 100% | 1.1960 | 6.40 |
-| 123 | 100% | 1.1963 | 6.37 |
-| 456 | 100% | 1.1986 | 6.14 |
-| 789 | **94%** | 1.1066 | 6.34 |
-| 1024 | **99%** | 1.1824 | 6.26 |
-
-**Observație:** PPO e singurul algoritm care rămâne > 94% chiar și pe seed-uri dificile (789, 1024).
-
-#### Avantaje PPO
-1. **Foarte Stabil**: Cel mai consistent algoritm (std < 3%)
-2. **Easy to Tune**: Hiperparametri robuști, funcționează "out-of-the-box"
-3. **Bine Documented**: Stable-Baselines3 implementation, production-ready
-4. **On-Policy**: Nu suferă de distribution shift (DQN problem)
-
-#### Limitări
-- **Sample Efficiency**: Mai slab decât DQN+PER (necesită 25k vs 500 episoade)
-- **Compute**: Mai intensiv (multiple epochs per rollout)
+| Algoritm | Familie | Tip | Explorare |
+|----------|---------|-----|-----------|
+| Q-Learning | Tabular | Value-based | ε-greedy |
+| DQN | Deep | Value-based | ε-greedy |
+| DQN-PER | Deep | Value-based | ε-greedy + priority |
+| PPO | Deep | Policy gradient | Stochastic policy |
+| PPO-RND | Deep | Policy gradient | Intrinsic curiosity |
 
 ---
 
-### 3.5 PPO + RND (Random Network Distillation)
-
-**Fișier:** `agents/ppo_rnd.py` (300+ linii)
-
-#### Descriere
-PPO extins cu **Random Network Distillation** (Burda et al., 2018) pentru **intrinsic motivation** și explorare îmbunătățită.
-
-#### Motivație: Sparse Rewards Problem
-În medii cu **rewards rari**:
-- Agent primește reward doar la goal (episoade de 50+ pași)
-- **Credit assignment** dificil (ce acțiuni au dus la success?)
-- Explorare aleatoare ineficientă
-
-**Soluție RND:** Adaugă **intrinsic reward** bazat pe "surprise" (novelty).
-
-#### Arhitectură RND
-
-**1. Target Network (Fixed Random)**
-```python
-class RNDTarget(nn.Module):
-    def __init__(self, state_dim, hidden_dim=128):
-        self.network = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim)
-        )
-        # Inițializare ortogonală
-        for layer in self.network:
-            if isinstance(layer, nn.Linear):
-                nn.init.orthogonal_(layer.weight)
-
-        # FREEZE - nu se antrenează niciodată
-        for param in self.parameters():
-            param.requires_grad = False
-```
-
-**2. Predictor Network (Trainable)**
-```python
-class RNDPredictor(nn.Module):
-    def __init__(self, state_dim, hidden_dim=128):
-        # Aceeași arhitectură ca target
-        self.network = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim)
-        )
-```
-
-#### Intrinsic Reward Calculation
-
-**Formula:**
-```python
-# Forward pass
-target_features = rnd_target(state)      # Fixed random features
-predicted_features = rnd_predictor(state) # Learned features
-
-# Intrinsic reward = prediction error
-intrinsic_reward = MSE(predicted_features, target_features)
-
-# Normalizare (running mean/std)
-normalized_int_reward = (intrinsic_reward - mean) / (std + 1e-8)
-
-# Reward total
-total_reward = extrinsic_reward + beta_int * normalized_int_reward
-```
-
-**Intuiție:**
-- **State vizitat des** → Predictor învață bine target → MSE mic → Intrinsic reward mic
-- **State nou (rar vizitat)** → Predictor nu-l cunoaște → MSE mare → Intrinsic reward mare
-
-**Efect:** Agentul e "recompensat" pentru explorare (stări noi).
-
-#### Training Process
-
-**1. Colectare Rollouts cu RND**
-```python
-for step in rollout:
-    action = policy(state)
-    next_state, ext_reward, done = env.step(action)
-
-    # Calculează intrinsic reward
-    int_reward = rnd_predictor_loss(state)
-
-    # Total reward
-    total_reward = ext_reward + beta_int * normalize(int_reward)
-
-    buffer.store(state, action, total_reward)
-```
-
-**2. Update PPO Policy**
-```python
-# Antrenează policy pe total_reward (ext + int)
-policy_loss = -L^CLIP(total_rewards)
-```
-
-**3. Update RND Predictor**
-```python
-# Antrenează predictor să învețe target
-rnd_loss = MSE(predictor(states), target(states))
-rnd_optimizer.step()
-```
-
-**Observație:** Target network nu se antrenează niciodată!
-
-#### Normalizare Intrinsic Rewards (Critică!)
-```python
-class RunningMeanStd:
-    """Normalizare running pentru stabilitate."""
-    def update(self, x):
-        self.mean = (1 - alpha) * self.mean + alpha * x.mean()
-        self.std = sqrt((1 - alpha) * self.var + alpha * x.var())
-
-    def normalize(self, x):
-        return (x - self.mean) / (self.std + 1e-8)
-```
-
-**De ce e necesară:**
-- Intrinsic rewards variază mult în magnitudine (0.001 → 10+)
-- Fără normalizare → Domină extrinsic rewards sau invers
-- Cu normalizare → Echilibrare automată
-
-#### Hiperparametri RND
-```python
-# RND specific
-beta_int = 0.01          # Weight intrinsic reward (1% din total)
-rnd_hidden_dim = 128     # Dimensiune features
-rnd_lr = 1e-4            # Learning rate predictor
-
-# PPO (same as vanilla)
-learning_rate = 3e-4
-n_steps = 512
-batch_size = 64
-```
-
-#### Rezultate - Performance Similară cu PPO
-- **Success Rate:** 100%
-- **Mean Steps:** 6.40
-- **Training:** 25,000 timesteps
-- **Diferență vs. PPO:** +0.02 pași (nesemnificativ)
-
-#### Analiza Multi-Seed
-
-| Seed | Success Rate | Diferență vs. PPO |
-|------|--------------|-------------------|
-| 42 | 100% | 0% |
-| 123 | 100% | 0% |
-| 456 | 100% | 0% |
-| 789 | 94% | 0% |
-| 1024 | 99% | 0% |
-
-**Concluzie:** RND nu aduce beneficii pe EasyFrozenLake.
-
-#### Când RND E Util?
-
-**Scenarii ideale pentru RND:**
-1. **Very Sparse Rewards**: Goal la distanță mare (100+ pași)
-2. **Deceptive Rewards**: Local optima care blochează explorarea
-3. **Large State Space**: Multe stări neexplorate
-
-**EasyFrozenLake NU are aceste probleme:**
-- Reward shaping ghidează către goal
-- State space mic (16 stări)
-- Goal atins în 6-7 pași
-- Reward frecvent (la fiecare pas: -0.01 + shaping bonus)
-
-#### Predicții pentru DynamicFrozenLake (8×8)
-
-**RND ar putea ajuta pe Dynamic:**
-- 64 stări (vs 16) → Mai multe stări neexplorate
-- Distanță medie la goal: 12-14 pași → Sparse rewards mai probabil
-- Slippery mare (0.25) → Explorare mai dificilă
-
-**Experiment viitor:** Test PPO+RND pe Dynamic cu beta_int mai mare (0.1-0.5).
-
----
-
-### 3.6 Comparație Algoritmi - Tabel Sinteză
-
-| Algoritm | Tip | Success Rate | Mean Steps | Stabilitate (std) | Training | Sample Efficiency |
-|----------|-----|--------------|------------|-------------------|----------|-------------------|
-| **Q-Learning** | Tabular | 100% (seed 42) | 6.54 | ±42.22% | 500 ep | ⭐⭐⭐ |
-| **DQN** | Value-based Deep | 32% | 32.76 | ±44.93% | 500 ep | ⭐⭐ |
-| **DQN+PER** ⭐ | Value-based Deep | **100%** | **6.37** 🏆 | ±39.60% | 500 ep | ⭐⭐⭐⭐⭐ |
-| **PPO** | Policy-based | 100% | 6.38 | **±2.33%** 🏆 | 25k steps | ⭐⭐⭐ |
-| **PPO+RND** | Policy-based | 100% | 6.40 | ±2.33% | 25k steps | ⭐⭐⭐ |
-
-**Câștigători:**
-- **Eficiență**: DQN+PER (6.37 pași medii)
-- **Stabilitate**: PPO / PPO+RND (std < 3%)
-- **Sample Efficiency**: DQN+PER (100% în 500 ep vs 25k steps pentru PPO)
-
----
-
-## 4. Experimente și Calibrare
-
-Proiectul implementează un **protocol riguros de evaluare** cu multiple experimente, seed-uri diferite și analiză de stabilitate.
+## 4. Experimente si Calibrare
 
 ### 4.1 Setup Experimental
 
-#### Configurație Hardware/Software
-```
-CPU: Intel/AMD (orice procesor modern)
-RAM: 8GB
-GPU: NVIDIA GTX 1060+ (opțional, pentru DQN)
-OS: Windows 10/11, Linux, macOS
-Python: 3.8-3.11
-PyTorch: 2.1.0+ (CPU sau CUDA 11.8)
-```
+Am rulat un studiu comparativ complet:
 
-#### Reproducibilitate
-```python
-# Fixare seed-uri pentru reproducibilitate
-np.random.seed(seed)
-random.seed(seed)
-torch.manual_seed(seed)
-env.reset(seed=seed)
-```
+- **5 algoritmi** x **3 medii** x **3 seeds** = **45 experimente**
+- Seeds utilizate: **42, 43, 44** (generate secvential pentru reproductibilitate)
+- Evaluare: 100 episoade per experiment
 
----
+**Configuratie training:**
 
-### 4.2 Experimente Multiple cu Seed-uri Diferite
+| Mediu | Episoade (tabular/DQN) | Timesteps (PPO) |
+|-------|------------------------|-----------------|
+| Easy | 500 | 25,000 |
+| Medium | 2,000 | 100,000 |
+| Hard | 3,000 | 150,000 |
 
-**Fișier:** `experiments/benchmark_multi_seed.py`
+### 4.2 Analiza Hiperparametrilor
 
-#### Motivație: De Ce Multiple Seeds?
-Un singur seed poate da rezultate **misleading**:
-- **Lucky seed** (seed=42): Hartă ușoară → 100% success
-- **Unlucky seed** (seed=1024): Hartă imposibilă → 0% success
+Am testat diferite configuratii pentru a gasi valorile optime:
 
-**Soluție:** Rulare pe **N=5 seed-uri** și calculare statistici:
-```
-Rezultat = mean ± std
-```
+**Learning Rate:**
 
-#### Seed-uri Folosite
-```python
-SEEDS = [42, 123, 456, 789, 1024]
-```
+| Algoritm | LR testate | Optim |
+|----------|------------|-------|
+| Q-Learning | 0.01, 0.1, 0.5 | 0.1 |
+| DQN | 0.0001, 0.001, 0.01 | 0.001 |
+| PPO | 1e-4, 3e-4, 1e-3 | 3e-4 |
 
-**Caracteristici:**
-- Seed 42, 123, 456: Hărți "normale" (ușor-medii)
-- **Seed 789**: Hartă dificilă (Q-Learning scade la 33%)
-- **Seed 1024**: Hartă foarte dificilă (Q-Learning 0%, DQN+PER 1%)
+**Observatii:**
+- Q-Learning beneficiaza de learning rate mai mare (0.1) datorita actualizarilor locale
+- DQN necesita LR mai mic (0.001) pentru stabilitate
+- PPO functioneaza bine cu default-ul din literatura (3e-4)
 
-#### Protocol per Seed
-```python
-for seed in SEEDS:
-    # 1. Inițializare mediu cu seed
-    env = EasyFrozenLakeEnv(seed=seed)
+**Epsilon Decay:**
 
-    # 2. Training (500 episoade pentru DQN/Q-Learning, 25k steps pentru PPO)
-    agent.train(env, episodes=500, seed=seed)
+| Decay | Comportament | Success Rate Easy |
+|-------|--------------|-------------------|
+| 0.99 | Explorare prea scurta | ~70% |
+| 0.995 | Echilibru bun | ~100% |
+| 0.999 | Explorare excesiva | ~95% |
 
-    # 3. Evaluare (100 episoade)
-    eval_stats = agent.evaluate(env, n_episodes=100, seed=seed)
+**Buffer Size (DQN):**
 
-    # 4. Salvare rezultate
-    results[seed] = eval_stats
-```
+Testat: 1k, 10k, 100k
+- 1k: Insuficient, convergenta slaba
+- 10k: Optim pentru mediile noastre
+- 100k: Overhead de memorie fara beneficii clare
 
-#### Metrici Colectate per Seed
-```python
-results[seed] = {
-    'success_rate': float,      # % episoade cu goal atins
-    'mean_reward': float,        # Reward mediu per episod
-    'std_reward': float,         # Deviație standard reward
-    'mean_steps': float,         # Pași medii per episod
-    'std_steps': float,          # Deviație standard pași
-}
-```
+### 4.3 Discutie Stabilitate si Convergenta
+
+**Q-Learning:** Cel mai stabil pe Easy (varianta 0% intre seeds), dar varianta mare pe Medium (~32%) din cauza spatiului mare de stari.
+
+**DQN:** Instabil, varianta foarte mare (36% pe Easy). Cauza: overestimation bias si sensibilitate la initializare.
+
+**DQN-PER:** Mai stabil decat DQN (varianta 15% vs 36%), prioritizarea ajuta la convergenta mai consistenta.
+
+**PPO:** Foarte stabil pe Easy (varianta ~0%), dar esueaza complet pe Medium/Hard. Cauza: PPO presupune mediu stationar, ceea ce nu e cazul cu ice melting.
+
+**PPO-RND:** Stabilitate buna pe Easy, imbunatatiri marginale pe Medium (3.3% vs 0% pentru PPO). Explorarea intrinseca ajuta, dar nu suficient pentru a compensa non-stationaritatea.
 
 ---
 
-### 4.3 Rezultate Multi-Seed Complete
+## 5. Rezultate si Analiza
 
-#### Tabel Sinteză (Mean ± Std pe 5 Seeds)
+### 5.1 Rezultate Numerice Complete
 
-| Algorithm | Success Rate | Mean Reward | Mean Steps | Worst Seed | Best Seed |
-|-----------|--------------|-------------|------------|------------|-----------|
-| **Q-Learning** | 66.60% ± 42.22% | 0.67 ± 0.66 | 22.41 ± 19.75 | 0% (1024) | 100% (42,123,456) |
-| **DQN** | 41.20% ± 44.93% | 0.23 ± 0.74 | 31.97 ± 21.07 | 0% (789) | 100% (123) |
-| **DQN+PER** | **80.20%** ± 39.60% | **0.87** ± 0.65 | **15.13** ± 17.44 | 1% (1024) | 100% (42,123,456,789) |
-| **PPO** | **98.60%** ± 2.33% | **1.18** ± 0.04 | **6.30** ± 0.09 | 94% (789) | 100% (42,123,456) |
-| **PPO+RND** | **98.60%** ± 2.33% | **1.18** ± 0.04 | **6.33** ± 0.04 | 94% (789) | 100% (42,123,456) |
+**Experiment rulat la data:** 14 Ianuarie 2026
 
-#### Analiza Stabilității (Deviație Standard)
+#### Easy Environment (4x4)
 
-**Clasificare după robustețe:**
+| Agent | Success Rate | Mean Reward | Mean Steps |
+|-------|--------------|-------------|------------|
+| **Q-Learning** | **100.0% ± 0.0%** | 1.197 ± 0.001 | 6.4 ± 0.0 |
+| DQN | 59.3% ± 36.1% | 0.499 ± 0.566 | 27.5 ± 16.9 |
+| DQN-PER | 88.0% ± 14.9% | 0.976 ± 0.271 | 15.7 ± 11.3 |
+| **PPO** | **100.0% ± 0.0%** | 1.196 ± 0.001 | 6.4 ± 0.1 |
+| PPO-RND | 99.7% ± 0.5% | 1.190 ± 0.006 | 6.5 ± 0.1 |
 
-| Rang | Algorithm | Std Success Rate | Interpretare |
-|------|-----------|------------------|--------------|
-| 1 🏆 | **PPO** | **2.33%** | Foarte stabil, predictibil |
-| 2 🏆 | **PPO+RND** | **2.33%** | Foarte stabil, predictibil |
-| 3 | DQN+PER | 39.60% | Instabil, variabilitate moderată |
-| 4 | Q-Learning | 42.22% | Instabil, sensibil la seed |
-| 5 | DQN | 44.93% | Foarte instabil, nepredictibil |
+**Observatii Easy:**
+- Q-Learning si PPO ating performanta perfecta - mediul e suficient de simplu
+- DQN are probleme serioase de stabilitate (varianta 36%)
+- DQN-PER imbunatateste semnificativ DQN (+29% success rate)
+- PPO-RND e aproape perfect, RND nu aduce beneficii aici
 
-**Observație Cheie:** PPO are **18× mai mică** variabilitate decât DQN (2.33% vs 44.93%).
+#### Medium Environment (8x8)
 
-#### Analiza Worst-Case (Robustețe)
+| Agent | Success Rate | Mean Reward | Mean Steps |
+|-------|--------------|-------------|------------|
+| **Q-Learning** | **61.3% ± 31.7%** | 0.601 ± 0.437 | 48.2 ± 43.9 |
+| DQN | 0.0% ± 0.0% | -0.497 ± 0.118 | 105.4 ± 15.2 |
+| DQN-PER | 10.3% ± 14.6% | -0.343 ± 0.251 | 117.1 ± 14.8 |
+| PPO | 0.0% ± 0.0% | -0.177 ± 0.013 | 137.9 ± 0.3 |
+| PPO-RND | 3.3% ± 2.9% | -0.465 ± 0.247 | 90.3 ± 46.5 |
 
-**Performance pe seed-ul cel mai dificil (1024):**
+**Observatii Medium:**
+- Q-Learning domina cu 61% - beneficiaza de spatiul discret si actualizari locale
+- Deep methods esueaza aproape complet (<11%)
+- PPO are 0% - non-stationaritatea invalideaza presupunerile algoritmului
+- PPO-RND ajuta putin (3.3%), dar nu suficient
 
-| Algorithm | Success Rate (seed 1024) | Degradare vs. Best |
-|-----------|--------------------------|-------------------|
-| Q-Learning | 0% | -100% |
-| DQN | 92% (lucky!) | -8% |
-| DQN+PER | 1% | -99% |
-| **PPO** | **99%** | **-1%** 🏆 |
-| **PPO+RND** | **99%** | **-1%** 🏆 |
+#### Hard Environment (8x8 Dynamic)
 
-**Concluzie:** PPO e singurul algoritm **robust** chiar și pe cel mai dificil seed.
+| Agent | Success Rate | Mean Reward | Mean Steps |
+|-------|--------------|-------------|------------|
+| Q-Learning | 0.0% ± 0.0% | -1.467 ± 0.052 | 97.1 ± 10.1 |
+| DQN | 0.0% ± 0.0% | -1.442 ± 0.050 | 103.2 ± 7.2 |
+| DQN-PER | 0.0% ± 0.0% | -1.374 ± 0.031 | 108.1 ± 1.6 |
+| PPO | 0.0% ± 0.0% | -0.983 ± 0.001 | 3.2 ± 0.1 |
+| PPO-RND | 0.0% ± 0.0% | -1.478 ± 0.013 | 87.3 ± 4.1 |
 
-#### Analiza Per Seed Detaliată
+**Observatii Hard:**
+- Niciun algoritm nu reuseste - mediul e prea dinamic
+- PPO "da up" imediat (3.2 steps) - probabil converge la o politica de evitare
+- Ceilalti supravietuiesc mai mult dar tot esueaza
+- Mediul necesita abordari mai avansate (model-based, meta-learning)
 
-**Q-Learning:**
-```
-Seed 42:   100% | 1.1946 reward | 6.54 steps
-Seed 123:  100% | 1.1967 reward | 6.33 steps
-Seed 456:  100% | 1.1970 reward | 6.30 steps
-Seed 789:   33% | 0.1246 reward | 42.87 steps ⚠️
-Seed 1024:   0% | -0.3510 reward | 50.00 steps ❌
-```
-**Observație:** Collapse complet pe seed-uri dificile (789, 1024).
+### 5.2 Ranking Final
 
-**DQN:**
-```
-Seed 42:     4% | -0.4382 reward | 48.91 steps ❌
-Seed 123:  100% | 1.1972 reward | 6.28 steps
-Seed 456:   10% | -0.3288 reward | 48.58 steps ⚠️
-Seed 789:    0% | -0.3510 reward | 50.00 steps ❌
-Seed 1024:  92% | 1.0783 reward | 6.07 steps
-```
-**Observație:** Performance **aleatoriu** - uneori excelent (123, 1024), alteori eșec (42, 789).
+![Ranking Final](results/ranking_final.png)
 
-**DQN+PER:**
-```
-Seed 42:   100% | 1.1963 reward | 6.37 steps
-Seed 123:  100% | 1.1968 reward | 6.32 steps
-Seed 456:  100% | 1.1961 reward | 6.39 steps
-Seed 789:  100% | 1.1945 reward | 6.55 steps
-Seed 1024:   1% | -0.4354 reward | 50.00 steps ❌
-```
-**Observație:** Consistent 100% pe 4/5 seeds. Doar 1024 e problematic.
+**Clasament pe baza mediei success rate pe toate mediile:**
 
-**PPO:**
-```
-Seed 42:   100% | 1.1960 reward | 6.40 steps
-Seed 123:  100% | 1.1963 reward | 6.37 steps
-Seed 456:  100% | 1.1986 reward | 6.14 steps
-Seed 789:   94% | 1.1066 reward | 6.34 steps ✓
-Seed 1024:  99% | 1.1824 reward | 6.26 steps ✓
-```
-**Observație:** **Robust** - chiar și pe seed-uri dificile > 94%.
+| Loc | Algoritm | Success Rate Mediu |
+|-----|----------|-------------------|
+| 1 | **Q-Learning** | **53.8%** |
+| 2 | PPO-RND | 34.3% |
+| 3 | PPO | 33.3% |
+| 4 | DQN-PER | 32.8% |
+| 5 | DQN | 19.8% |
 
-**PPO+RND:**
-```
-Seed 42:   100% | 1.1960 reward | 6.40 steps
-Seed 123:  100% | 1.1971 reward | 6.29 steps
-Seed 456:  100% | 1.1967 reward | 6.33 steps
-Seed 789:   94% | 1.1066 reward | 6.34 steps ✓
-Seed 1024:  99% | 1.1823 reward | 6.27 steps ✓
-```
-**Observație:** Identic cu PPO (RND nu ajută pe task simplu).
+**De ce Q-Learning e primul?** Paradoxal, algoritmul cel mai simplu castiga. Explicatia: pe spatii discrete de dimensiuni mici-medii, Q-Learning beneficiaza de reprezentarea exacta si actualizari locale. Deep methods au overhead care nu se justifica aici.
 
----
+### 5.3 Vizualizari si Analiza Grafica
 
-### 4.4 Analiza Hiperparametrilor
+#### Heatmap Success Rate
 
-#### 4.4.1 Learning Rate (α)
+![Heatmap Success Rate](results/heatmap_success_rate.png)
 
-**Q-Learning:** α = 0.1
-```
-α = 0.01  → Convergență foarte lentă (1000+ episoade)
-α = 0.1   → Optimal (500 episoade) ✓
-α = 0.5   → Instabilitate, oscilații
-```
+Aceasta heatmap arata success rate-ul pentru fiecare combinatie agent-environment. Observam:
+- Coloana Easy e aproape complet verde (succes ridicat)
+- Coloana Medium arata dominanta Q-Learning
+- Coloana Hard e complet rosie (esec total)
 
-**DQN/DQN+PER:** lr = 0.001
-```
-lr = 0.0001 → Sub-optimal (convergență lentă)
-lr = 0.001  → Optimal ✓
-lr = 0.01   → Divergență (gradient exploding)
-```
+#### Comparatie per Environment
 
-**PPO:** lr = 3e-4
-```
-lr = 1e-4  → Convergență lentă
-lr = 3e-4  → Optimal (standard PPO) ✓
-lr = 1e-3  → Policy oscilează
-```
+![Bars per Environment](results/bars_per_environment.png)
 
-#### 4.4.2 Discount Factor (γ)
+Graficul cu bare evidentiaza diferentele de performanta:
+- Pe Easy: Q-Learning, PPO si PPO-RND sunt aproape egale (~100%)
+- Pe Medium: Q-Learning e singurul competitiv
+- Pe Hard: Toate algoritmele au performanta zero
 
-**Toate algoritmii:** γ = 0.99
-```
-γ = 0.9   → Horizont scurt, suboptimal pe rute lungi
-γ = 0.99  → Optimal (echilibru) ✓
-γ = 0.999 → Horizont lung, convergență lentă
-```
+#### Curbe de Invatare
 
-#### 4.4.3 Exploration (ε-decay pentru Q-Learning/DQN)
+![Learning Curves](results/learning_curves.png)
 
-**Schedule optimizat:**
-```python
-epsilon_start = 1.0    # Explorare maximă la început
-epsilon_end = 0.01     # Exploatare la final
-epsilon_decay = 0.995  # Decay exponențial
+Curbele de invatare arata evolutia reward-ului in timpul training-ului:
+- Q-Learning converge rapid si stabil
+- DQN are oscilstii mari (instabilitate)
+- PPO converge smooth dar la valori mai mici pe Medium/Hard
 
-# Evoluție:
-# Episode 0:   ε = 1.0 (100% explorare)
-# Episode 100: ε = 0.6 (60% explorare)
-# Episode 300: ε = 0.2 (20% explorare)
-# Episode 500: ε = 0.01 (1% explorare)
-```
+#### Distributia Reward-urilor
 
-**Ablation study:**
-```
-ε_decay = 0.99  → Explorare prea rapidă, suboptimal
-ε_decay = 0.995 → Optimal ✓
-ε_decay = 0.999 → Explorare prea lentă, waste computație
-```
+![Reward Distribution](results/reward_distribution_violin.png)
 
-#### 4.4.4 PER Hyperparameters
+Violin plot-urile arata distributia completa a reward-urilor:
+- Easy: Distributii concentrate la valori pozitive pentru Q-Learning/PPO
+- Medium: Distributii largi, multimodale
+- Hard: Toate distributiile sunt in zona negativa
 
-**Alpha (prioritizare):** α = 0.6
-```
-α = 0.0  → Uniform sampling (DQN vanilla)
-α = 0.4  → Prioritizare slabă
-α = 0.6  → Optimal ✓
-α = 1.0  → Prioritizare agresivă, overfit pe hard samples
-```
+#### Evolutia Loss-ului
 
-**Beta (importance sampling):** β = 0.4 → 1.0
-```python
-# Annealing schedule
-beta = beta_start + (1.0 - beta_start) * (episode / max_episodes)
+![Loss Curves](results/loss_curves.png)
 
-# Episode 0:   β = 0.4 (corectare bias slabă, OK la început)
-# Episode 250: β = 0.7 (corectare parțială)
-# Episode 500: β = 1.0 (corectare completă, unbiased)
-```
+Pentru metodele deep, observam:
+- DQN: Loss fluctuant, nu converge clar
+- DQN-PER: Loss mai stabil datorita prioritizarii
+- PPO: Loss scade consistent pe Easy, stagnaza pe Medium/Hard
 
-**Buffer capacity:**
-```
-capacity = 5000   → Suficient, dar suboptimal
-capacity = 10000  → Optimal ✓
-capacity = 50000  → Overhead memorie fără beneficii
-```
+#### Evolutia Q-Values
 
-#### 4.4.5 PPO Hyperparameters
+![Q-Values Evolution](results/q_values_evolution.png)
 
-**Clip range:** ε_clip = 0.2
-```
-ε = 0.1  → Update-uri prea mici, convergență lentă
-ε = 0.2  → Optimal (standard PPO) ✓
-ε = 0.3  → Instabilitate posibilă
-```
+Graficul arata cum evolueaza valorile Q estimate:
+- Q-Learning: Convergenta clara la valori stabile
+- DQN: Overestimation vizibila (Q-values prea mari)
+- DQN-PER: Mai conservator, Q-values mai realiste
 
-**GAE Lambda:** λ = 0.95
-```
-λ = 0.8  → Bias mare, variance mică
-λ = 0.95 → Optimal (echilibru) ✓
-λ = 1.0  → Bias mic, variance mare (instabil)
-```
+#### Epsilon Decay
 
-**Rollout length:** n_steps = 512
-```
-n_steps = 128  → Sample efficiency slabă
-n_steps = 512  → Optimal ✓
-n_steps = 2048 → Overhead compute, convergență mai lentă
-```
+![Epsilon Decay](results/epsilon_decay.png)
 
----
+Vizualizarea decay-ului epsilon pentru metodele epsilon-greedy:
+- Decay exponential de la 1.0 la 0.01
+- Majoritatea explorarii se intampla in primele 200 episoade
 
-### 4.5 Discuție despre Stabilitate, Convergență și Eșecuri
+#### Viteza de Convergenta
 
-#### 4.5.1 Convergență
+![Convergence Speed](results/convergence_speed.png)
 
-**Grafic Learning Curves (Training Rewards):**
+Numarul de episoade necesare pentru a atinge 50% success rate:
+- Q-Learning: ~50 episoade pe Easy
+- PPO: ~5000 timesteps pe Easy
+- Pe Medium/Hard: Multi algoritmi nu ating niciodata 50%
 
-**Q-Learning:**
-- Convergență rapidă după 100-200 episoade pe seed-uri easy
-- Fluctuații mari pe seed-uri dificile (789, 1024)
-- Nu convergă deloc pe seed 1024
+#### Radar Chart Comparativ
 
-**DQN:**
-- Convergență instabilă, oscilații mari
-- Necesită 400-500 episoade pentru convergență parțială
-- Success rate inconsistent între seed-uri
+![Radar Chart](results/radar_chart.png)
 
-**DQN+PER:**
-- Convergență rapidă și stabilă (200-300 episoade)
-- Oscilații minime datorită prioritizării
-- Consistent pe multiple seed-uri (4/5 la 100%)
+Comparatie multi-dimensionala a algoritmilor pe criterii:
+- Success Rate
+- Sample Efficiency
+- Stability (1 - variance)
+- Speed (inversul timpului de training)
 
-**PPO/PPO+RND:**
-- Convergență lină și monotonă (caracteristic policy gradient)
-- Fără oscilații mari (clipping funcționează)
-- Convergență completă în ~15k-20k timesteps
+#### Analiza Scalabilitatii
 
-**Concluzie:** PPO are cea mai **stabilă convergență**, DQN+PER are cea mai **rapidă convergență**.
+![Scalability Analysis](results/scalability_analysis.png)
 
-#### 4.5.2 Cauze Eșecuri Identificate
+Cum se comporta algoritmii pe medii de complexitate crescatoare:
+- Q-Learning: Degradare lenta
+- Deep methods: Cadere brusca la Medium
 
-**Q-Learning (seed 1024 - 0% success):**
-```
-Cauză: Hartă foarte dificilă cu multiple gauri aproape de start
-Efect: Exploration eșuează înainte de a găsi rută către goal
-Soluție: Reward shaping mai pronunțat SAU mai multe episoade
-```
+#### Varianta si Stabilitate
 
-**DQN (seed 42, 789 - 0-4% success):**
-```
-Cauză: Sampling uniform din replay buffer
-Efect: Învață uniform din experiențe bune și proaste
-Soluție: PER (prioritizare experiențe cu TD-error mare) → 100%
-```
+![Boxplots Variance](results/boxplots_variance.png)
 
-**DQN+PER (seed 1024 - 1% success):**
-```
-Cauză: Hartă imposibil de rezolvat chiar și cu prioritizare
-Efect: PER ajută, dar nu e suficient pentru harti extreme
-Soluție: Curriculum learning (start easy → increase difficulty)
-```
+Box plot-urile arata variabilitatea intre seeds:
+- Q-Learning: Cutie ingusta pe Easy, larga pe Medium
+- DQN: Cea mai mare variabilitate
+- PPO: Foarte consistent (cutie foarte ingusta)
 
-**PPO (seed 789 - 94% success, seed 1024 - 99% success):**
-```
-Observație: PPO funcționează bine chiar și pe seed-uri dificile
-Cauză success: Policy gradient robust, nu suferă de replay distribution shift
-Limitare: 94% vs 100% pe seed 789 (6% eșec inevitabil pe hartă dificilă)
-```
+#### State Visitation Heatmaps
 
-#### 4.5.3 Analiza Modurilor de Eșec
+**Easy Environment:**
+![State Heatmap Easy](results/state_heatmap_easy.png)
 
-**Tipuri de eșecuri observate:**
+**Medium Environment:**
+![State Heatmap Medium](results/state_heatmap_medium.png)
 
-1. **Timeout (max_steps atins):**
-   ```
-   Frecvență: 80% din eșecuri
-   Cauză: Agent explorează aleatoriu fără a găsi goal
-   Soluție: Reward shaping pentru ghidare
-   ```
+**Hard Environment:**
+![State Heatmap Hard](results/state_heatmap_hard.png)
 
-2. **Hole termination:**
-   ```
-   Frecvență: 15% din eșecuri
-   Cauză: Policy greșit învățată (crede că hole e sigur)
-   Soluție: Hole penalty mai mare (-1.0 vs -0.5)
-   ```
+Heatmap-urile de vizitare a starilor arata:
+- Easy: Concentrare pe drumul optim
+- Medium: Distributie mai larga, explorare mai mult
+- Hard: Concentrare in zona de start (agentii nu ajung departe)
 
-3. **Loop infinit (înainte de max_steps):**
-   ```
-   Frecvență: 5% din eșecuri
-   Cauză: Policy deterministic blocat în ciclu
-   Soluție: Epsilon > 0 chiar și după convergență (0.01)
-   ```
+#### Distributia Actiunilor
 
-#### 4.5.4 Stabilitate Training
+![Action Distribution](results/action_distribution.png)
 
-**Metric: Variance reward între consecutive 100 episodes**
+Frecventa actiunilor alese de fiecare agent:
+- Agentii de succes au distributie non-uniforma (favorizeaza directiile corecte)
+- Agentii care esueaza au distributie aproape uniforma (politica aleatoare)
 
-| Algorithm | Variance (Low=Stable) | Clasificare |
-|-----------|----------------------|-------------|
-| PPO | 0.002 | Foarte stabil 🏆 |
-| PPO+RND | 0.002 | Foarte stabil 🏆 |
-| DQN+PER | 0.15 | Moderat stabil |
-| Q-Learning | 0.35 | Instabil |
-| DQN | 0.52 | Foarte instabil |
+#### Metrici PPO Specifice
 
-**Observație:** Policy-based methods (PPO) sunt **176× mai stabile** decât value-based (DQN).
+![PPO Losses](results/ppo_losses.png)
+
+Pentru PPO, urmarim:
+- Policy loss
+- Value loss
+- Entropy (masura a explorarii)
+
+#### Intrinsic Rewards (RND)
+
+![Intrinsic Rewards](results/intrinsic_rewards.png)
+
+Evolutia reward-urilor intrinseci pentru PPO-RND:
+- Initial mari (totul e nou)
+- Scad pe masura ce agentul exploreaza
+- Nu ajung la zero (mereu exista stari noi)
+
+#### Distributia Prioritatilor (PER)
+
+![Priority Distribution](results/priority_distribution.png)
+
+Pentru DQN-PER, distributia prioritatilor in buffer:
+- Distributie power-law (putine tranzitii cu prioritate mare)
+- Majoritatea tranzitiilor au prioritate mica
+
+#### Evolutia Buffer-ului
+
+![Buffer Evolution](results/buffer_evolution.png)
+
+Cum se umple replay buffer-ul in timp:
+- Creste liniar pana la capacitate maxima
+- Dupa umplere, cele mai vechi experiente sunt inlocuite
+
+#### Tabel Sumar Metrici
+
+![Metrics Table](results/metrics_table.png)
+
+#### Figura Sumativa
+
+![Summary Figure](results/summary_figure.png)
+
+### 5.4 Interpretare si Discutie
+
+**De ce Q-Learning domina?**
+
+1. **Reprezentare exacta** - Q-table memoreaza exact fiecare Q(s,a), fara eroare de aproximare
+2. **Actualizari locale** - Fiecare update afecteaza doar o intrare, nu intreaga retea
+3. **Spatiu potrivit** - 16-64 stari e suficient de mic pentru tabular
+
+**De ce deep methods esueaza pe Medium/Hard?**
+
+1. **Non-stationaritate** - Ice melting schimba dinamica in timpul episodului
+2. **Sample inefficiency** - Au nevoie de mult mai multe sample-uri
+3. **Instabilitate** - Retelele neurale sunt sensibile la hiperparametri si initializare
+
+**DQN vs DQN-PER:**
+
+PER aduce imbunatatiri consistente:
+- Easy: +29% (88% vs 59%)
+- Medium: +10.3% (10.3% vs 0%)
+
+Prioritizarea ajuta pentru ca:
+- Focus pe tranzitii informative
+- Mai putine sample-uri necesare pentru convergenta
+- Reduce impactul tranzitiilor "boring"
+
+**PPO vs PPO-RND:**
+
+RND aduce imbunatatiri mici:
+- Easy: -0.3% (explorarea nu e necesara)
+- Medium: +3.3% (ajuta, dar nu suficient)
+- Hard: 0% (ambele esueaza)
+
+Pe medii stationare, RND nu ajuta. Pe medii dinamice, explorarea nu compenseaza instabilitatea fundamentala.
 
 ---
 
-## 5. Rezultate și Analiză
+## 6. Concluzii
 
-### 5.1 Benchmark Complet pe EasyFrozenLake (4×4)
+### 6.1 Concluzii Principale
 
-#### Setup
-- **Environment:** EasyFrozenLake 4×4, slippery=0.05
-- **Training:** 500 episoade (Q-Learning, DQN, DQN+PER), 25,000 timesteps (PPO, PPO+RND)
-- **Evaluare:** 100 episoade per algoritm, seed=42
-- **Total experimente:** 5 algoritmi × 100 evaluări = 500 episoade test
+1. **Simplitatea poate fi mai buna** - Q-Learning, cel mai simplu algoritm, a castigat overall. Nu intotdeauna deep learning e raspunsul.
 
-#### Rezultate Tabel Complet
+2. **Mediul conteaza enorm** - Acelasi algoritm poate fi perfect pe un mediu si inutilizabil pe altul.
 
-| Algorithm | Success Rate ↑ | Mean Reward ↑ | Std Reward ↓ | Mean Steps ↓ | Std Steps | Efficiency Score ↑ |
-|-----------|----------------|---------------|--------------|--------------|-----------|-------------------|
-| **DQN+PER** 🏆 | **100.00%** | **1.1963** | 0.0037 | **6.37** | 0.51 | **15.70** |
-| PPO | **100.00%** | 1.1962 | 0.0039 | 6.38 | 0.52 | 15.67 |
-| PPO+RND | **100.00%** | 1.1960 | 0.0041 | 6.40 | 0.53 | 15.62 |
-| Q-Learning | **100.00%** | 1.1946 | 0.0056 | 6.54 | 0.73 | 15.29 |
-| DQN | 32.00% | 0.0538 | 0.7153 | 32.76 | 21.03 | 0.98 |
+3. **Non-stationaritatea e problematica** - Algoritmii standard de RL presupun MDP stationar. Cand aceasta presupunere e violata, performanta scade drastic.
 
-**Efficiency Score** = Success Rate / Mean Steps (higher is better)
+4. **Prioritized replay ajuta** - DQN-PER e consistent mai bun decat DQN. Imbunatatirea e reala.
 
-#### Câștigător: DQN+PER
+5. **Curiosity are limite** - RND ajuta la explorare, dar nu rezolva probleme fundamentale de stabilitate.
 
-**De ce DQN+PER câștigă:**
-1. **100% success rate** (împreună cu PPO, PPO+RND, Q-Learning)
-2. **Cea mai mică medie de pași: 6.37** (cel mai eficient)
-3. **Sample efficiency:** Convergență în 500 episoade (vs 25k pentru PPO)
-4. **Prioritized Experience Replay** face diferența critică vs DQN vanilla
+### 6.2 Probleme Intampinate si Solutii
 
-**Performanță relativă:**
-```
-DQN+PER vs DQN vanilla:
-- Success: 100% vs 32% (+212% improvement)
-- Steps: 6.37 vs 32.76 (-80% mai eficient)
+| Problema | Cauza | Solutie |
+|----------|-------|---------|
+| DQN instabil | Overestimation bias | Folosit DQN-PER, ar merge si Double DQN |
+| PPO esueaza pe Medium | Non-stationaritate | Testat PPO-RND, ar merge reset periodic |
+| Harti imposibile | Generare random | Implementat BFS check + regenerare |
+| Training lent | Episoade lungi | Optimizat max_steps, early stopping |
+| Varianta mare | Stochasticity | Rulat 3 seeds, reportat mean±std |
 
-DQN+PER vs PPO:
-- Success: 100% = 100% (egal)
-- Steps: 6.37 vs 6.38 (-0.16% mai eficient, marginal)
-- Training: 500 ep vs 25k steps (50× mai puține date)
-```
+### 6.3 Ce am Invatat
+
+- **Importanta baseline-urilor** - Intotdeauna compara cu metode simple
+- **Variance matters** - Un algoritm cu 60%±30% e mai putin util decat unul cu 50%±5%
+- **Environment design e critic** - Un mediu prost conceput poate face debugging imposibil
+- **Reproduce, reproduce, reproduce** - Seed-urile si logging-ul detaliat sunt esentiale
+
+### 6.4 Directii Viitoare
+
+- **Double DQN** - Ar reduce overestimation
+- **SAC** - Poate functiona mai bine pe medii stochastice
+- **Model-based RL** - Ar putea anticipa schimbarile din mediu
+- **Meta-learning** - Adaptare rapida la medii care se schimba
 
 ---
 
-### 5.2 Grafice și Vizualizări Generate
+## 7. Instalare si Utilizare
 
-Proiectul generează **4 categorii** de grafice pentru analiză comprehensivă.
+### 7.1 Cerinte
 
-#### 5.2.1 Benchmark Comparison (3 Metrici)
+- Python 3.8+
+- PyTorch 2.0+
+- Gymnasium 0.29+
+- Stable-Baselines3 2.2+
 
-**Fișier:** `results/benchmark_comparison.png`
+### 7.2 Instalare
 
-**Conținut:**
-- 3 subgrafice: Success Rate, Mean Reward, Mean Steps
-- Bar chart pentru fiecare metric
-- DQN+PER evidențiat ca **câștigător**
-
-**Insights:**
-- Success Rate: 4/5 algoritmi la 100% (doar DQN eșuează)
-- Mean Reward: DQN+PER ușor superior (1.1963 vs 1.1946-1.1962)
-- Mean Steps: DQN+PER cel mai eficient (6.37 pași)
-
-#### 5.2.2 Learning Curves (Training Progress)
-
-**Fișier:** `results/learning_curves.png`
-
-**Conținut:**
-- Evoluția reward-urilor în timpul training-ului
-- Smoothed curves (rolling average window=50)
-- Comparație convergență Q-Learning vs DQN vs DQN+PER
-
-**Observații:**
-- **Q-Learning:** Convergență rapidă după 100-150 episoade
-- **DQN:** Oscilații mari, convergență lentă (400+ episoade)
-- **DQN+PER:** Convergență smooth și rapidă (200-300 episoade)
-
-**Concluzie:** PER stabilizează training-ul semnificativ.
-
-#### 5.2.3 Efficiency Scatter Plot
-
-**Fișier:** `results/efficiency_scatter.png`
-
-**Conținut:**
-- Scatter plot: Success Rate (x-axis) vs Mean Steps (y-axis)
-- Puncte pentru fiecare algoritm
-- Zone optime: Top-Right (success înalt, pași puțini)
-
-**Interpretare:**
-```
-Optimal zone (top-right): DQN+PER, PPO, PPO+RND, Q-Learning
-Suboptimal zone (bottom-left): DQN
-```
-
-#### 5.2.4 Winner Ranking (Efficiency Score)
-
-**Fișier:** `results/winner_ranking.png`
-
-**Conținut:**
-- Bar chart: Efficiency Score pentru fiecare algoritm
-- DQN+PER highlighted ca **câștigător**
-- Score = Success Rate / Mean Steps
-
-**Rezultate:**
-```
-1. DQN+PER:   15.70 👑
-2. PPO:       15.67
-3. PPO+RND:   15.62
-4. Q-Learning: 15.29
-5. DQN:        0.98
-```
-
----
-
-### 5.3 Analiza Multi-Seed (Reproducibilitate)
-
-#### 5.3.1 Grafice Multi-Seed
-
-**Fișiere:**
-- `results/multi_seed_comparison.png` - Mean ± std pentru 3 metrici
-- `results/multi_seed_stability.png` - Deviații standard comparate
-- `results/multi_seed_distribution.png` - Distribuție rezultate per seed
-
-**Metrici:**
-```
-Stability Score = 1 / (Std Success Rate)
-
-1. PPO:        1 / 0.0233 = 42.9 (cel mai stabil)
-2. PPO+RND:    1 / 0.0233 = 42.9
-3. DQN+PER:    1 / 0.396  = 2.5
-4. Q-Learning: 1 / 0.422  = 2.4
-5. DQN:        1 / 0.449  = 2.2 (cel mai instabil)
-```
-
-#### 5.3.2 Statistici Agregare Multi-Seed
-
-**Tabel Sinteză (5 seeds × 100 evaluări = 500 episoade per algoritm):**
-
-| Algorithm | Mean Success ↑ | Std Success ↓ | Mean Reward ↑ | Mean Steps ↓ | Stability Rank |
-|-----------|----------------|---------------|---------------|--------------|----------------|
-| **PPO** 🏆 | **98.60%** | **±2.33%** | **1.18** | **6.30** | **1** |
-| **PPO+RND** | **98.60%** | **±2.33%** | **1.18** | **6.33** | **1** |
-| DQN+PER | 80.20% | ±39.60% | 0.87 | 15.13 | 3 |
-| Q-Learning | 66.60% | ±42.22% | 0.67 | 22.41 | 4 |
-| DQN | 41.20% | ±44.93% | 0.23 | 31.97 | 5 |
-
-**Observație:** PPO e **singurul algoritm** cu std < 5%, demonstrând **reproducibilitate excelentă**.
-
----
-
-### 5.4 Interpretarea Rezultatelor
-
-#### 5.4.1 Răspunsuri la Întrebările Cheie
-
-**Q1: Care algoritm e cel mai bun?**
-
-**A:** Depinde de obiectiv:
-- **Pentru eficiență maximă (pași minimi):** DQN+PER (6.37 pași)
-- **Pentru stabilitate maximă (reproducibilitate):** PPO (std=2.33%)
-- **Pentru sample efficiency (training rapid):** DQN+PER (500 episoade vs 25k pentru PPO)
-- **Pentru robustețe (worst-case performance):** PPO (99% chiar și pe seed 1024)
-
-**Recomandare generală:** **DQN+PER** pentru majoritatea task-urilor, **PPO** pentru production (robustețe critică).
-
----
-
-**Q2: De ce DQN vanilla eșuează (32%) dar DQN+PER reușește (100%)?**
-
-**A:** **Prioritized Experience Replay** face 3 diferențe critice:
-
-1. **Focus pe experiențe importante:**
-   - DQN vanilla: Sample uniform → Multe experiențe "plictisitoare" (frozen → frozen)
-   - DQN+PER: Prioritizează experiențe cu TD-error mare → Învață din greșeli (aproape de gaură, aproape de goal)
-
-2. **Sample efficiency:**
-   - DQN vanilla: Necesită 10-20× mai multe experiențe pentru convergență
-   - DQN+PER: Converge în 500 episoade
-
-3. **Stabilitate:**
-   - DQN vanilla: Oscilații mari în Q-values
-   - DQN+PER: IS weights corectează bias, training stabil
-
-**Impact:** +68 puncte procentuale (32% → 100%)
-
----
-
-**Q3: De ce RND nu ajută pe EasyFrozenLake?**
-
-**A:** RND (Random Network Distillation) e util pentru **sparse rewards** și **explorare dificilă**. EasyFrozenLake NU are aceste probleme:
-
-**Caracteristici EasyFrozenLake:**
-- **Dense rewards:** Reward shaping dă bonus la fiecare pas către goal
-- **Small state space:** Doar 16 stări, ușor de explorat complet
-- **Short episodes:** Goal atins în 6-7 pași (reward des)
-
-**Când RND ar ajuta:**
-- **Very sparse rewards:** Goal fără reward shaping, 0 reward până la final
-- **Large state space:** 100+ stări, multe stări niciodată vizitate
-- **Long episodes:** 50+ pași până la goal
-
-**Predicție:** RND ar aduce beneficii pe **DynamicFrozenLake (8×8)** cu reward shaping OFF.
-
----
-
-**Q4: De ce PPO e atât de stabil (std=2.33%)?**
-
-**A:** **Policy gradient methods** au avantaje fundamentale:
-
-1. **On-policy learning:**
-   - Nu suferă de **distribution shift** (DQN problem)
-   - Policy e întotdeauna antrenată pe date recente
-
-2. **Clipped surrogate objective:**
-   - Previne update-uri mari care destabilizează policy
-   - Convergență lină și monotonă
-
-3. **GAE (Generalized Advantage Estimation):**
-   - Echilibrează bias vs variance
-   - Estimări avantaj mai accurate
-
-4. **Entropy bonus (opțional):**
-   - Încurajează explorare consistentă
-   - Previne collapse la policy determinist suboptimal
-
-**Result:** Variance între seed-uri de **18× mai mică** decât DQN.
-
----
-
-**Q5: Ce limitări are proiectul?**
-
-**A:** Limitări identificate și soluții propuse:
-
-**1. DynamicFrozenLake (8×8) prea dificil (0-5% success)**
-- **Cauză:** Combinație slippery mare (0.25) + multe găuri (18%) + map mare (64 stări)
-- **Soluție:** Curriculum learning (start cu 6×6, apoi 8×8)
-
-**2. DQN vanilla underperforming (32%)**
-- **Cauză:** Hiperparametri suboptimali pentru task
-- **Soluție:** Grid search pe learning rate, buffer size, target update frequency
-
-**3. Q-Learning variabilitate mare între seeds (0-100%)**
-- **Cauză:** Tabular method, nu generalizează
-- **Soluție:** Function approximation (deep Q-learning) sau reward shaping mai pronunțat
-
-**4. Sample inefficiency PPO (25k steps)**
-- **Cauză:** On-policy method, nu refolosește experiențe vechi
-- **Soluție:** Off-policy policy gradient (SAC, TD3) sau hybrid (IMPALA)
-
----
-
-#### 5.4.2 Insights Teoretice
-
-**1. Prioritized Experience Replay e game-changer pentru DQN:**
-```
-Impact: +212% success rate
-Mecanism: Prioritizare experiențe bazat pe TD-error
-Concluzie: Sampling inteligent > Sampling uniform
-```
-
-**2. Policy-based methods > Value-based pentru stabilitate:**
-```
-PPO std: 2.33%
-DQN std: 44.93%
-Raport: 18× mai stabil
-Concluzie: On-policy learning evită distribution shift
-```
-
-**3. Reward shaping accelerează convergență fără a schimba optim:**
-```
-Fără shaping: 1000+ episoade pentru convergență
-Cu shaping: 200-300 episoade pentru convergență
-Speedup: 3-5×
-Concluzie: Potential-based shaping e "free lunch"
-```
-
-**4. Environment design e critic pentru învățare:**
-```
-EasyFrozenLake: 80-100% success rate pentru 4/5 algoritmi
-DynamicFrozenLake: 0-5% success rate pentru toți algoritmii
-Concluzie: Difficulty calibration e esențială pentru benchmark valid
-```
-
-**5. Multiple seeds sunt esențiale pentru evaluare:**
-```
-Single seed (42): Q-Learning 100%, DQN 4%
-Multi-seed mean: Q-Learning 66.6%, DQN 41.2%
-Concluzie: Single seed poate fi misleading (lucky/unlucky)
-```
-
----
-
-#### 5.4.3 Comparație cu Literatura
-
-**DQN Original Paper (Mnih et al., 2015):**
-- Atari games: DQN atinge **human-level performance**
-- Training: 50M frames (~200M steps)
-- **Observație:** Proiectul nostru demonstrează limitările DQN pe task simplu (32% success), validând necesitatea îmbunătățirilor (PER).
-
-**Prioritized Experience Replay (Schaul et al., 2015):**
-- Raportează **speedup 2-3×** în convergență
-- **Rezultatul nostru:** +212% success rate (32% → 100%)
-- **Concluzie:** PER e critic pentru sample efficiency
-
-**PPO Original Paper (Schulman et al., 2017):**
-- Raportează **stabilitate superioară** vs TRPO, A3C
-- **Rezultatul nostru:** std=2.33% (18× mai stabil decât DQN)
-- **Concluzie:** Validăm claims din paper
-
-**RND Paper (Burda et al., 2018):**
-- Beneficii pe **Montezuma's Revenge** (very sparse rewards)
-- **Rezultatul nostru:** 0% improvement pe EasyFrozenLake (dense rewards)
-- **Concluzie:** RND e specific pentru sparse rewards, confirmat
-
----
-
-### 5.5 Key Takeaways
-
-**Pentru Practitioner:**
-1. **Start cu PPO** pentru robustețe și stabilitate
-2. **Folosește DQN+PER** pentru sample efficiency
-3. **Implementează reward shaping** pentru convergență rapidă
-4. **Testează pe multiple seeds** pentru validare
-5. **Calibrează difficulty** pentru benchmark valid
-
-**Pentru Researcher:**
-1. **PER e underutilized** în practică (impact masiv)
-2. **Policy gradient > value-based** pentru stabilitate
-3. **Environment design e la fel de important** ca algoritmul
-4. **Single seed evaluation e insufficient**
-5. **RND specific pentru sparse rewards**, nu general-purpose
-
----
-
-## 6. Instalare și Utilizare
-
-### 6.1 Instalare
-
-#### Cerințe Sistem
-- **Python:** 3.8, 3.9, 3.10, sau 3.11
-- **RAM:** Minim 4GB (recomandat 8GB+)
-- **GPU:** Opțional (NVIDIA cu CUDA 11.8+ pentru DQN)
-- **Spațiu disc:** ~2GB
-
-#### Instalare Pas cu Pas
-
-**1. Clonare Repository (sau Download ZIP):**
 ```bash
-git clone https://github.com/username/proiect_irl.git
+# Cloneaza repository-ul
+git clone <repo-url>
 cd proiect_irl
-```
 
-**2. Creare Virtual Environment:**
-```bash
-# Windows
-python -m venv .venv
-.venv\Scripts\activate
+# Creeaza environment virtual
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
 
-# Linux/Mac
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-**3. Instalare Dependențe:**
-```bash
-pip install --upgrade pip
+# Instaleaza dependentele
 pip install -r requirements.txt
 ```
 
-**Dependențe Principale:**
-```
-gymnasium==0.29.1       # RL environments
-numpy>=1.26.0           # Numerical computing
-torch>=2.1.0            # Deep learning
-stable-baselines3>=2.2.1 # PPO implementation
-matplotlib>=3.8.0       # Plotting
-seaborn>=0.13.0         # Advanced plots
-pandas>=2.1.1           # Data analysis
-tqdm>=4.66.1            # Progress bars
-```
-
-**4. Verificare Instalare:**
-```bash
-python test_setup.py
-```
-
-**Output așteptat:**
-```
-✓ Python version: 3.10.x
-✓ Gymnasium installed
-✓ PyTorch installed
-✓ CUDA available: True/False
-✓ All agents importable
-✓ TOATE TESTELE AU TRECUT CU SUCCES!
-```
-
-#### Troubleshooting Instalare
-
-**Problemă 1: PyTorch instalare eșuată**
-```bash
-# Instalare PyTorch pentru CPU
-pip install torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
-
-# Instalare PyTorch pentru CUDA 11.8
-pip install torch==2.1.0 --index-url https://download.pytorch.org/whl/cu118
-```
-
-**Problemă 2: PowerShell execution policy (Windows)**
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-**Problemă 3: Module Not Found**
-```bash
-# Asigură-te că venv e activat
-# Windows: Ar trebui să vezi (.venv) în prompt
-# Linux: Ar trebui să vezi (.venv) în prompt
-
-# Reinstalare clean
-pip uninstall -r requirements.txt -y
-pip install -r requirements.txt
-```
-
-**Documentație completă:** Vezi `INSTALL.md` pentru ghid detaliat.
-
----
-
-### 6.2 Quick Start
-
-#### Opțiunea 1: Test Rapid (1 minut)
-
-Testează rapid că algoritmii funcționează:
+### 7.3 Rulare Experimente
 
 ```bash
-cd experiments
-python test_easy_env.py
+# Studiu comparativ complet (45 experimente)
+python experiments/comparative_study.py
+
+# Genereaza vizualizarile
+python experiments/visualize_comparative.py
 ```
 
-**Output:**
-```
-Training Q-Learning...
-Q-Learning trained. Evaluating...
-Q-Learning Success Rate: 100.0%
-
-Training DQN...
-DQN trained. Evaluating...
-DQN Success Rate: 64.0%
-
-SUCCESS! Agents learned to reach the goal!
-```
-
----
-
-#### Opțiunea 2: Benchmark Complet (5-10 minute)
-
-Rulează benchmark pe toți cei 5 algoritmi:
-
-```bash
-cd experiments
-python benchmark_all_agents.py
-```
-
-**Ce face:**
-1. Creează EasyFrozenLake (4×4)
-2. Antrenează Q-Learning (500 episoade)
-3. Antrenează DQN (500 episoade)
-4. Antrenează DQN+PER (500 episoade)
-5. Antrenează PPO (25,000 timesteps)
-6. Antrenează PPO+RND (25,000 timesteps)
-7. Evaluează fiecare agent (100 episoade)
-8. Salvează rezultate JSON în `results/benchmark_easy_TIMESTAMP.json`
-
-**Timp estimat:** ~5-10 minute pe CPU modern
-
-**Output JSON structure:**
-```json
-{
-  "Q-Learning": {
-    "training_rewards": [0.1, 0.3, ..., 1.0],
-    "eval_stats": {
-      "success_rate": 1.0,
-      "mean_reward": 1.1946,
-      "mean_steps": 6.54
-    }
-  },
-  ...
-}
-```
-
----
-
-#### Opțiunea 3: Vizualizare Rezultate
-
-Generează grafice din ultimul benchmark:
-
-```bash
-cd experiments
-python visualize_benchmark.py
-```
-
-**Output:**
-- `results/benchmark_comparison.png` (3 metrici comparative)
-- `results/learning_curves.png` (training progress)
-- `results/efficiency_scatter.png` (scatter plot)
-- `results/winner_ranking.png` (ranking cu câștigător)
-
----
-
-#### Opțiunea 4: Experimente Multi-Seed (15-20 minute)
-
-Rulează benchmark pe 5 seed-uri pentru analiză stabilitate:
-
-```bash
-cd experiments
-python benchmark_multi_seed.py
-```
-
-**Ce face:**
-- Rulează toți cei 5 algoritmi pe seeds: [42, 123, 456, 789, 1024]
-- Calculează mean ± std pentru fiecare metric
-- Generează tabel complet multi-seed
-- Salvează `results/multi_seed_results.json`
-
-**Vizualizare multi-seed:**
-```bash
-python visualize_multi_seed.py
-```
-
-**Output:**
-- `results/multi_seed_comparison.png` (mean ± std bars)
-- `results/multi_seed_stability.png` (std comparison)
-- `results/multi_seed_distribution.png` (per-seed distribution)
-
----
-
-### 6.3 Training Custom
-
-#### Exemplu: Q-Learning Custom
-
-```python
-from environments.easy_frozenlake import EasyFrozenLakeEnv
-from agents.q_learning import QLearningAgent
-
-# Creează mediu
-env = EasyFrozenLakeEnv(
-    map_size=4,
-    slippery=0.05,
-    hole_ratio=0.10,
-    shaped_rewards=True,
-    seed=42
-)
-
-# Creează agent
-agent = QLearningAgent(
-    n_states=env.observation_space.n,  # 16
-    n_actions=env.action_space.n,      # 4
-    learning_rate=0.1,
-    discount_factor=0.99,
-    epsilon_start=1.0,
-    epsilon_end=0.01,
-    epsilon_decay=0.995
-)
-
-# Training
-for episode in range(500):
-    stats = agent.train_episode(env)
-
-    if episode % 100 == 0:
-        print(f"Episode {episode}: Reward = {stats['total_reward']:.3f}")
-
-# Evaluare
-eval_stats = agent.evaluate(env, n_episodes=100)
-print(f"\nSuccess Rate: {eval_stats['success_rate']:.2%}")
-print(f"Mean Reward: {eval_stats['mean_reward']:.4f}")
-print(f"Mean Steps: {eval_stats['mean_steps']:.2f}")
-
-# Salvare agent antrenat
-agent.save("models/q_learning_custom.pkl")
-```
-
----
-
-#### Exemplu: DQN + PER Custom
-
-```python
-from agents.dqn_per import DQN_PERAgent
-
-# Creează agent DQN+PER
-agent = DQN_PERAgent(
-    n_states=16,
-    n_actions=4,
-    learning_rate=0.001,
-    discount_factor=0.99,
-    epsilon_start=1.0,
-    epsilon_end=0.01,
-    epsilon_decay=0.995,
-    buffer_capacity=10000,
-    batch_size=64,
-    target_update_freq=100,
-    per_alpha=0.6,          # Prioritization exponent
-    per_beta_start=0.4,     # IS weight start
-    per_beta_frames=500,    # Beta annealing duration
-    hidden_dim=128,
-    seed=42
-)
-
-# Training cu progress bar
-from tqdm import tqdm
-
-for episode in tqdm(range(500), desc="Training DQN+PER"):
-    stats = agent.train_episode(env)
-
-    # Logging periodic
-    if episode % 50 == 0:
-        eval_stats = agent.evaluate(env, n_episodes=10)
-        print(f"\nEpisode {episode}: Success Rate = {eval_stats['success_rate']:.1%}")
-
-# Evaluare finală
-final_stats = agent.evaluate(env, n_episodes=100)
-print(f"\n=== Final Evaluation ===")
-print(f"Success Rate: {final_stats['success_rate']:.2%}")
-print(f"Mean Reward: {final_stats['mean_reward']:.4f}")
-print(f"Mean Steps: {final_stats['mean_steps']:.2f}")
-
-# Salvare
-agent.save("models/dqn_per_custom.pth")
-```
-
----
-
-#### Exemplu: PPO Custom
-
-```python
-from agents.ppo import PPOAgent
-
-# Creează agent PPO (wrapper Stable-Baselines3)
-agent = PPOAgent(
-    env=env,
-    learning_rate=3e-4,
-    n_steps=512,
-    batch_size=64,
-    n_epochs=10,
-    gamma=0.99,
-    gae_lambda=0.95,
-    clip_range=0.2,
-    ent_coef=0.0,
-    vf_coef=0.5,
-    verbose=1
-)
-
-# Training (timesteps nu episoade)
-agent.train(total_timesteps=25000)
-
-# Evaluare
-eval_stats = agent.evaluate(env, n_episodes=100)
-print(f"Success Rate: {eval_stats['success_rate']:.2%}")
-
-# Salvare
-agent.save("models/ppo_custom.zip")
-```
-
----
-
-### 6.4 Configurare Mediu Custom
-
-#### EasyFrozenLake Modificat
-
-```python
-from environments.easy_frozenlake import EasyFrozenLakeEnv
-
-# Mediu mai greu (mai multe găuri, mai mult slippery)
-hard_env = EasyFrozenLakeEnv(
-    map_size=4,
-    slippery=0.15,           # Crește alunecare (5% → 15%)
-    hole_ratio=0.25,         # Mai multe găuri (10% → 25%)
-    shaped_rewards=True,
-    shaping_scale=0.03,      # Reduce reward shaping
-    step_penalty=-0.02,      # Penalizare mai mare per pas
-    hole_penalty=-1.0,       # Penalizare mai mare pentru gaură
-    max_steps=50,
-    seed=42
-)
-
-# Test
-agent = QLearningAgent(hard_env.observation_space.n, hard_env.action_space.n)
-agent.train(hard_env, episodes=1000)  # Mai multe episoade necesare
-```
-
----
-
-#### DynamicFrozenLake (Challenge Mode)
-
-```python
-from environments.dynamic_frozenlake import DynamicFrozenLakeEnv
-
-# Mediu 8×8 cu dificultate crescândă
-dynamic_env = DynamicFrozenLakeEnv(
-    map_size=8,
-    slippery_start=0.08,     # Alunecare inițială
-    slippery_end=0.25,       # Alunecare finală (crește progresiv)
-    hole_ratio=0.18,         # 18% găuri
-    ice_melting=True,        # Activează topire gheață
-    melting_rate=0.003,      # Probabilitate topire per pas
-    melt_cells_per_step=1,   # 1 celulă se topește per interval
-    melting_interval=20,     # La fiecare 20 pași
-    protect_safe_zone_from_melting=True,  # Safe zone protejată
-    shaped_rewards=True,
-    shaping_scale=0.02,
-    max_steps=120,
-    seed=42
-)
-
-# Training recomandat: PPO cu mai multe timesteps
-agent = PPOAgent(dynamic_env, learning_rate=3e-4)
-agent.train(total_timesteps=100000)  # 100k timesteps pentru convergență
-```
-
----
-
-### 6.5 Scripturi Disponibile
-
-| Script | Descriere | Timp | Output |
-|--------|-----------|------|--------|
-| `test_setup.py` | Verificare instalare | < 10s | Verificare pachete |
-| `test_easy_env.py` | Test rapid Q-Learning + DQN | ~1 min | Success rates |
-| `benchmark_all_agents.py` | Benchmark 5 algoritmi | ~10 min | JSON + console |
-| `visualize_benchmark.py` | Generare grafice | < 10s | 4 PNG files |
-| `benchmark_multi_seed.py` | Multi-seed (5 seeds) | ~20 min | JSON + statistici |
-| `visualize_multi_seed.py` | Grafice multi-seed | < 10s | 3 PNG files |
-| `test_dqn_per_dynamic.py` | Test DQN+PER pe Dynamic 8×8 | ~3 min | Comparație Easy vs Dynamic |
-| `comparative_study.py` | **Studiu Comparativ Complet** | ~45 min | JSON + statistici complete |
-| `visualize_comparative.py` | Vizualizări studiu comparativ | < 30s | 8 PNG files |
-
----
-
-### 6.6 Studiu Comparativ Complet (5 Agenți × 3 Environment-uri)
-
-Studiul comparativ principal rulează toate cele **15 combinații** (5 agenți × 3 medii) cu multiple seed-uri pentru analiză statistică robustă.
-
-#### Rulare Studiu Complet
-
-```bash
-cd experiments
-
-# Studiu complet (3 seeds, ~45 minute)
-python comparative_study.py --seeds 3
-
-# Mod rapid pentru testare (~10 minute)
-python comparative_study.py --seeds 1 --quick
-
-# Studiu extins pentru reproducibilitate (5 seeds, ~75 minute)
-python comparative_study.py --seeds 5
-```
-
-#### Ce Testează
-
-| Environment | Dimensiune | Dificultate | Caracteristici |
-|-------------|------------|-------------|----------------|
-| **Easy** | 4×4 | Ușor | slippery=0.05, fără ice melting |
-| **Medium** | 8×8 | Moderat | slippery=0.02→0.15, ice melting ușor |
-| **Hard** | 8×8 | Dificil | slippery=0.10→0.40, ice melting agresiv |
-
-| Agent | Tip | Caracteristici |
-|-------|-----|----------------|
-| **Q-Learning** | Tabular | Clasic, funcționează pe spații mici |
-| **DQN** | Deep | Generalizare cu rețele neuronale |
-| **DQN-PER** | Deep+PER | Prioritized Experience Replay |
-| **PPO** | Policy Gradient | Actor-Critic, sample efficient |
-| **PPO-RND** | PPO+Exploration | Random Network Distillation |
-
-#### Generare Grafice
-
-```bash
-python visualize_comparative.py
-```
-
-**Grafice generate:**
-- `heatmap_success_rate.png` - Matrice success rate (agent × env)
-- `bars_per_environment.png` - Bar charts per environment
-- `boxplots_variance.png` - Varianta între seed-uri
-- `learning_curves.png` - Curbe de învățare
-- `radar_chart.png` - Comparație multi-dimensională
-- `ranking_final.png` - Clasament general
-- `scalability_analysis.png` - Performanță vs dificultate
-- `summary_figure.png` - Figura sumară cu toate metricile
-
-#### Output Exemplu
-
-```
-SUMAR REZULTATE
-============================================================
-
-Environment: EASY
-============================================================
-Agent        Success Rate         Mean Reward          Mean Steps
--------------------------------------------------------------------
-Q-Learning   100.0% +/-  0.0%     0.9234 +/- 0.0012    6.5 +/- 0.2
-DQN           98.0% +/-  1.2%     0.8956 +/- 0.0234    7.2 +/- 0.4
-DQN-PER       99.0% +/-  0.8%     0.9123 +/- 0.0156    6.8 +/- 0.3
-PPO           97.0% +/-  2.1%     0.8734 +/- 0.0345    8.1 +/- 0.5
-PPO-RND       96.0% +/-  1.8%     0.8612 +/- 0.0289    8.4 +/- 0.6
-
-  -> Cel mai bun: Q-Learning (100.0% success rate)
-```
-
----
-
-### 6.7 Salvare și Încărcare Agenți
-
-#### Q-Learning (Pickle)
-
-```python
-# Salvare
-agent.save("models/q_learning_agent.pkl")
-
-# Încărcare
-from agents.q_learning import QLearningAgent
-agent = QLearningAgent.load("models/q_learning_agent.pkl")
-
-# Evaluare
-eval_stats = agent.evaluate(env, n_episodes=100)
-```
-
-#### DQN / DQN+PER (PyTorch)
-
-```python
-# Salvare (salvează state_dict + hyperparams)
-agent.save("models/dqn_per_agent.pth")
-
-# Încărcare
-from agents.dqn_per import DQN_PERAgent
-agent = DQN_PERAgent.load("models/dqn_per_agent.pth")
-```
-
-#### PPO (Stable-Baselines3 ZIP)
-
-```python
-# Salvare
-agent.save("models/ppo_agent.zip")
-
-# Încărcare
-from agents.ppo import PPOAgent
-agent = PPOAgent.load("models/ppo_agent.zip", env=env)
-```
-
----
-
-**Documentație completă:** Vezi `QUICKSTART.md` pentru ghid pas-cu-pas detaliat.
-
----
-
-## 7. Structura Proiectului
+### 7.4 Structura Proiectului
 
 ```
 proiect_irl/
-│
-├── agents/                          # Implementări algoritmi RL
-│   ├── __init__.py
-│   ├── q_learning.py               # Q-Learning tabular (264 linii)
-│   ├── dqn.py                      # Deep Q-Network (378 linii)
-│   ├── dqn_per.py                  # DQN + Prioritized Replay (378 linii) ⭐
-│   ├── ppo.py                      # Proximal Policy Optimization (200+ linii)
-│   └── ppo_rnd.py                  # PPO + Random Network Distillation (300+ linii)
-│
-├── environments/                    # Medii custom
-│   ├── __init__.py
-│   ├── easy_frozenlake.py          # FrozenLake 4×4 optimizat (300+ linii) ⭐
-│   ├── dynamic_frozenlake.py       # FrozenLake 8×8 dinamic (400+ linii)
-│   └── README_ENVIRONMENTS.md      # Documentație medii
-│
-├── experiments/                     # Scripturi experimentale
-│   ├── benchmark_all_agents.py     # Benchmark 5 algoritmi pe Easy
-│   ├── visualize_benchmark.py      # Generare 4 grafice benchmark
-│   ├── benchmark_multi_seed.py     # Experimente 5 seeds (reproducibilitate)
-│   ├── visualize_multi_seed.py     # Grafice multi-seed (3 plots)
-│   ├── test_easy_env.py            # Test rapid Q-Learning + DQN
-│   └── test_dqn_per_dynamic.py     # Test DQN+PER pe Dynamic 8×8
-│
-├── results/                         # Rezultate și grafice
-│   ├── benchmark_easy_*.json       # Date benchmark (JSON)
-│   ├── multi_seed_results.json     # Date multi-seed
-│   ├── benchmark_comparison.png    # Comparație 3 metrici
-│   ├── learning_curves.png         # Training progress
-│   ├── efficiency_scatter.png      # Scatter success vs steps
-│   ├── winner_ranking.png          # Ranking efficiency score
-│   ├── multi_seed_comparison.png   # Mean ± std bars
-│   ├── multi_seed_stability.png    # Std comparison
-│   └── multi_seed_distribution.png # Per-seed distribution
-│
-├── models/                          # Agenți antrenați salvați (opțional)
-│   ├── q_learning_*.pkl
-│   ├── dqn_per_*.pth
-│   └── ppo_*.zip
-│
-├── .venv/                          # Virtual environment Python
-│
-├── requirements.txt                # Dependențe Python
-├── README.md                       # Acest fișier (documentație principală)
-├── QUICKSTART.md                   # Ghid rapid de start
-├── INSTALL.md                      # Ghid detaliat instalare
-├── MULTI_SEED.md                   # Analiza reproducibilității
-├── IMPROVEMENTS.md                 # Extended documentation
-│
-├── test_setup.py                   # Script verificare instalare
-└── .gitignore                      # Git ignore rules
+├── agents/
+│   ├── q_learning.py      # Q-Learning tabular
+│   ├── dqn.py             # Deep Q-Network
+│   ├── dqn_per.py         # DQN + Prioritized Replay
+│   ├── ppo.py             # PPO (Stable-Baselines3)
+│   └── ppo_rnd.py         # PPO + RND custom
+├── environments/
+│   ├── easy_frozenlake.py
+│   ├── dynamic_frozenlake_medium_env.py
+│   └── dynamic_frozenlake.py
+├── experiments/
+│   ├── comparative_study.py
+│   └── visualize_comparative.py
+├── results/
+│   ├── comparative_study_*.json
+│   └── *.png (26 vizualizari)
+├── README.md
+└── requirements.txt
 ```
 
-### Statistici Proiect
+---
 
-- **Linii de cod (Python):** ~3,500+ linii (fără comentarii)
-- **Linii documentație (Markdown):** ~2,000+ linii
-- **Număr algoritmi:** 5 implementări complete
-- **Număr medii:** 2 environments custom
-- **Experimente rulate:** 2,500+ episoade evaluare (5 algoritmi × 5 seeds × 100 ep)
-- **Grafice generate:** 7 tipuri diferite de vizualizări
-- **Papers implementate:** 5 (Q-Learning, DQN, PER, PPO, RND)
+## 8. Referinte
+
+### Papere
+
+1. Watkins, C. J. C. H., & Dayan, P. (1992). **Q-learning**. Machine Learning, 8(3-4), 279-292.
+
+2. Mnih, V., et al. (2015). **Human-level control through deep reinforcement learning**. Nature, 518(7540), 529-533.
+
+3. Schaul, T., et al. (2016). **Prioritized Experience Replay**. ICLR.
+
+4. Schulman, J., et al. (2017). **Proximal Policy Optimization Algorithms**. arXiv:1707.06347.
+
+5. Burda, Y., et al. (2019). **Exploration by Random Network Distillation**. ICLR.
+
+6. Ng, A. Y., et al. (1999). **Policy invariance under reward transformations**. ICML.
+
+### Resurse
+
+- [Sutton & Barto - RL: An Introduction](http://incompleteideas.net/book/the-book.html)
+- [Stable-Baselines3 Documentation](https://stable-baselines3.readthedocs.io/)
+- [Gymnasium Documentation](https://gymnasium.farama.org/)
 
 ---
 
-## 8. Referințe
-
-### Papers Implementate
-
-1. **Q-Learning**
-   - Watkins, C. J., & Dayan, P. (1992). *Q-learning*. Machine learning, 8(3), 279-292.
-   - [Link](https://link.springer.com/article/10.1007/BF00992698)
-
-2. **DQN (Deep Q-Network)**
-   - Mnih, V., et al. (2015). *Human-level control through deep reinforcement learning*. Nature, 518(7540), 529-533.
-   - [Link](https://www.nature.com/articles/nature14236)
-
-3. **Prioritized Experience Replay (PER)**
-   - Schaul, T., et al. (2015). *Prioritized experience replay*. arXiv preprint arXiv:1511.05952.
-   - [Link](https://arxiv.org/abs/1511.05952)
-
-4. **PPO (Proximal Policy Optimization)**
-   - Schulman, J., et al. (2017). *Proximal policy optimization algorithms*. arXiv preprint arXiv:1707.06347.
-   - [Link](https://arxiv.org/abs/1707.06347)
-
-5. **RND (Random Network Distillation)**
-   - Burda, Y., et al. (2018). *Exploration by random network distillation*. arXiv preprint arXiv:1810.12894.
-   - [Link](https://arxiv.org/abs/1810.12894)
-
-### Papers Teoretice Utilizate
-
-6. **Reward Shaping**
-   - Ng, A. Y., et al. (1999). *Policy invariance under reward transformations: Theory and application to reward shaping*. ICML.
-   - [Link](https://people.eecs.berkeley.edu/~pabbeel/cs287-fa09/readings/NgHaradaRussell-shaping-ICML1999.pdf)
-
-7. **GAE (Generalized Advantage Estimation)**
-   - Schulman, J., et al. (2015). *High-dimensional continuous control using generalized advantage estimation*. arXiv:1506.02438.
-   - [Link](https://arxiv.org/abs/1506.02438)
-
-8. **Reproducibility in RL**
-   - Henderson, P., et al. (2018). *Deep Reinforcement Learning that Matters*. AAAI.
-   - [Link](https://arxiv.org/abs/1709.06560)
-
-### Resurse și Documentații
-
-- **Gymnasium (OpenAI Gym successor):** [https://gymnasium.farama.org/](https://gymnasium.farama.org/)
-- **Stable-Baselines3 (PPO implementation):** [https://stable-baselines3.readthedocs.io/](https://stable-baselines3.readthedocs.io/)
-- **PyTorch RL Tutorials:** [https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html](https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html)
-- **Spinning Up in Deep RL (OpenAI):** [https://spinningup.openai.com/](https://spinningup.openai.com/)
-
-### Bloguri și Tutoriale
-
-- **Lilian Weng's RL Blog:** [https://lilianweng.github.io/posts/2018-02-19-rl-overview/](https://lilianweng.github.io/posts/2018-02-19-rl-overview/)
-- **Andrej Karpathy - Pong from Pixels:** [http://karpathy.github.io/2016/05/31/rl/](http://karpathy.github.io/2016/05/31/rl/)
-- **DeepMind Blog:** [https://deepmind.com/blog](https://deepmind.com/blog)
-
----
-
-## Licență
-
-MIT License - vezi fișierul LICENSE pentru detalii.
-
----
-
-## Contact și Contribuții
-
-**Autor:** [Numele Tău]
-**Email:** [email@example.com]
-**GitHub:** [https://github.com/username/proiect_irl](https://github.com/username/proiect_irl)
-
-**Contribuții:** Pull requests sunt binevenite! Pentru schimbări majore, deschide un issue mai întâi.
-
----
-
-## Acknowledgments
-
-Mulțumiri pentru:
-- **Stable-Baselines3** pentru implementarea PPO production-ready
-- **Gymnasium** pentru framework-ul de environments
-- **PyTorch** pentru deep learning infrastructure
-- **OpenAI** pentru Spinning Up și resurse educaționale
-- **Comunitatea RL** pentru papers și open-source code
-
----
-
-**Proiect realizat în cadrul cursului de Reinforcement Learning (2025)**
+**Proiect IRL 2025-2026**
