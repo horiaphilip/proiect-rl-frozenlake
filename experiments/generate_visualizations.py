@@ -114,8 +114,8 @@ def plot_per_seed_comparison(results):
 
 def plot_q_value_heatmaps_detailed():
     try:
-        q_data = np.load('results/q_tables.npz')
-        with open('results/maps.json', 'r') as f:
+        q_data = np.load('../results/q_tables.npz')
+        with open('../results/maps.json', 'r') as f:
             maps_data = json.load(f)
     except FileNotFoundError:
         print("Q-tables not found! Run experiment first to generate them.")
