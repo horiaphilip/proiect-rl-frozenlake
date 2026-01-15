@@ -1671,7 +1671,6 @@ def main():
     plt.rcParams['figure.facecolor'] = 'white'
     plt.rcParams['font.size'] = 10
 
-    print("\nGenerez grafice principale...")
 
     plot_heatmap_success_rate(results, output_dir)
     plot_bars_per_environment(results, output_dir)
@@ -1682,7 +1681,6 @@ def main():
     plot_scalability_analysis(results, output_dir)
     generate_summary_figure(results, output_dir)
 
-    print("\nGenerez grafice metrici extinse...")
 
     plot_loss_curves(results, output_dir)
     plot_q_values_evolution(results, output_dir)
@@ -1691,7 +1689,6 @@ def main():
     plot_training_stability(results, output_dir)
     generate_metrics_table(results, output_dir)
 
-    print("\nGenerez grafice noi (PPO, Buffer, Efficiency, Convergence)...")
 
     plot_ppo_losses(results, output_dir)
     plot_buffer_evolution(results, output_dir)
@@ -1699,7 +1696,6 @@ def main():
     plot_convergence_speed(results, output_dir)
     plot_intrinsic_rewards(results, output_dir)
 
-    print("\nGenerez grafice aditionale (Behavior, Distribution, Performance)...")
 
     plot_episode_length_evolution(results, output_dir)
     plot_action_distribution(results, output_dir)
@@ -1731,13 +1727,11 @@ def main():
     print("    - td_errors.png")
     print("    - training_stability.png")
     print("    - metrics_table.png + .txt")
-    print("  Grafice noi:")
     print("    - ppo_losses.png")
     print("    - buffer_evolution.png")
     print("    - sample_efficiency.png")
     print("    - convergence_speed.png")
     print("    - intrinsic_rewards.png")
-    print("  Grafice aditionale:")
     print("    - episode_length_evolution.png")
     print("    - action_distribution.png")
     print("    - reward_distribution_violin.png")
