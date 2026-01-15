@@ -3,8 +3,7 @@ import random
 
 class SimpleQLearning:
 
-    # Fiecare agent isi mentine propria Q-table independenta.
-    
+
     def __init__(self, learning_rate=0.1, discount_factor=0.99, epsilon=1.0, 
                  epsilon_decay=0.9998, epsilon_min=0.1):
         self.q_table = np.zeros((64, 4))  # 64 states, 4 actiuni (FrozenLake 8x8)
@@ -28,7 +27,6 @@ class SimpleQLearning:
         self.q_table[state][action] += self.lr * td_error
         
     def decay_epsilon(self):
-        # scade rata de explorare
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def train_episode(self, env):
@@ -63,10 +61,6 @@ class SimpleQLearning:
 
 class SimpleMARLSystem:
 
-    # Sistem Multi-Agent Reinforcement Learning folosind Independent Q-Learning (IQL).
-    # Doi agenti invata independent, fiecare cu propria Q-table.
-    # (shared rewards) cat si (individual rewards).
-
     
     def __init__(self):
         self.agent1 = SimpleQLearning()
@@ -77,14 +71,11 @@ class SimpleMARLSystem:
         done = False
         
         while not done:
-            # Fiecare agent selecteaza actiune independent
             a1 = self.agent1.select_action(s1)
             a2 = self.agent2.select_action(s2)
             
-            # Executa actiunile in environment
             (ns1, ns2), (r1, r2), done, truncated, info = env.step((a1, a2))
             
-            # Fiecare agent se actualizeaza independent
             self.agent1.update(s1, a1, r1, ns1, done)
             self.agent2.update(s2, a2, r2, ns2, done)
             
@@ -92,7 +83,6 @@ class SimpleMARLSystem:
             if done or truncated:
                 break
                 
-        # Scade epsilon pentru ambii agenti
         self.agent1.decay_epsilon()
         self.agent2.decay_epsilon()
 

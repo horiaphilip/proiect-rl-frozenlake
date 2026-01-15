@@ -103,7 +103,7 @@ class DynamicFrozenLakeEnv(gym.Env):
             r = min(r + 1, self.map_size - 1)
         elif action == 2:
             c = min(c + 1, self.map_size - 1)
-        elif action == 3: # UP
+        elif action == 3:
             r = max(r - 1, 0)
         return self._get_state_from_pos(r, c)
 
