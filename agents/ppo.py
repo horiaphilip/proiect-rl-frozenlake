@@ -1,10 +1,3 @@
-"""
-PPO Agent (Proximal Policy Optimization)
-
-Agent policy-based care folosește Stable Baselines3 pentru implementarea PPO.
-PPO este un algoritm modern și robust pentru RL.
-"""
-
 import numpy as np
 from typing import Dict, Any, Optional
 from stable_baselines3 import PPO as SB3_PPO
@@ -13,7 +6,6 @@ import gymnasium as gym
 
 
 class TrainingCallback(BaseCallback):
-    """Callback pentru colectarea statisticilor în timpul antrenamentului."""
 
     def __init__(self, verbose=0):
         super(TrainingCallback, self).__init__(verbose)
@@ -21,7 +13,6 @@ class TrainingCallback(BaseCallback):
         self.episode_lengths = []
         self.current_episode_reward = 0
         self.current_episode_length = 0
-        # Metrici de loss
         self.policy_losses = []
         self.value_losses = []
         self.entropy_losses = []
@@ -29,7 +20,6 @@ class TrainingCallback(BaseCallback):
         self.clip_fractions = []
 
     def _on_step(self) -> bool:
-        """Apelat la fiecare pas."""
         self.current_episode_reward += self.locals['rewards'][0]
         self.current_episode_length += 1
 
@@ -42,8 +32,6 @@ class TrainingCallback(BaseCallback):
         return True
 
     def _on_rollout_end(self) -> None:
-        """Apelat la finalul fiecărui rollout - capturam loss-urile."""
-        # Accesează logger-ul pentru a obține metrici
         try:
             if hasattr(self.model, 'logger') and self.model.logger is not None:
                 logger = self.model.logger
@@ -63,7 +51,6 @@ class TrainingCallback(BaseCallback):
             pass
 
     def get_stats(self) -> Dict[str, float]:
-        """Returnează statistici despre ultimele episoade."""
         stats = {}
 
         if self.episode_rewards:
@@ -75,7 +62,6 @@ class TrainingCallback(BaseCallback):
             stats['mean_length'] = 0.0
             stats['num_episodes'] = 0
 
-        # Adauga metrici de loss
         if self.policy_losses:
             stats['policy_loss'] = float(np.mean(self.policy_losses[-5:]))
         if self.value_losses:
@@ -91,12 +77,6 @@ class TrainingCallback(BaseCallback):
 
 
 class PPOAgent:
-    """
-    Agent PPO (Proximal Policy Optimization).
-
-    Wrapper peste Stable Baselines3 PPO pentru compatibilitate cu ceilalți agenți.
-    """
-
     def __init__(
         self,
         env: gym.Env,
@@ -112,26 +92,8 @@ class PPOAgent:
         max_grad_norm: float = 0.5,
         verbose: int = 0,
     ):
-        """
-        Inițializare agent PPO.
-
-        Args:
-            env: Mediul de antrenament
-            learning_rate: Rata de învățare
-            n_steps: Număr de pași pentru colectare experiență înainte de update
-            batch_size: Dimensiunea batch-ului pentru antrenament
-            n_epochs: Număr de epoci de antrenament pe batch
-            gamma: Factorul de discount
-            gae_lambda: Lambda pentru GAE (Generalized Advantage Estimation)
-            clip_range: Range pentru clipping în PPO
-            ent_coef: Coeficientul pentru entropy bonus
-            vf_coef: Coeficientul pentru value function loss
-            max_grad_norm: Valoarea maximă pentru gradient clipping
-            verbose: Nivel de verbozitate
-        """
         self.env = env
 
-        # Creează modelul PPO
         self.model = SB3_PPO(
             policy="MlpPolicy",
             env=env,
@@ -148,41 +110,17 @@ class PPOAgent:
             verbose=verbose,
         )
 
-        # Callback pentru statistici
         self.callback = TrainingCallback()
 
-        # Statistici
         self.training_timesteps = 0
 
     def select_action(self, state: int, training: bool = True) -> int:
-        """
-        Selectează o acțiune.
-
-        Args:
-            state: Starea curentă
-            training: Dacă este în modul training (nu are efect pentru PPO)
-
-        Returns:
-            Acțiunea selectată
-        """
         action, _ = self.model.predict(state, deterministic=not training)
         return int(action)
 
     def train(self, total_timesteps: int, progress_bar: bool = False) -> Dict[str, Any]:
-        """
-        Antrenează agentul.
-
-        Args:
-            total_timesteps: Număr total de pași de antrenament
-            progress_bar: Dacă se afișează progress bar
-
-        Returns:
-            Dicționar cu statistici despre antrenament
-        """
-        # Reset callback
         self.callback = TrainingCallback()
 
-        # Antrenează modelul
         self.model.learn(
             total_timesteps=total_timesteps,
             callback=self.callback,
@@ -191,28 +129,12 @@ class PPOAgent:
 
         self.training_timesteps += total_timesteps
 
-        # Returnează statistici
         stats = self.callback.get_stats()
         stats['total_timesteps'] = self.training_timesteps
 
         return stats
 
     def train_episode(self, env, max_steps: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Antrenează agentul pe un episod complet (folosind n_steps din PPO).
-
-        Note: PPO antrenează pe batch-uri de experiențe, nu pe episoade individuale.
-        Această metodă antrenează pentru n_steps pași.
-
-        Args:
-            env: Mediul de antrenament (ignorat, se folosește self.env)
-            max_steps: Număr maxim de pași (ignorat, se folosește n_steps din PPO)
-
-        Returns:
-            Dicționar cu statistici despre antrenament
-        """
-        # PPO antrenează pe batch-uri, nu pe episoade
-        # Antrenăm pentru n_steps pași
         n_steps = self.model.n_steps
 
         stats = self.train(total_timesteps=n_steps, progress_bar=False)
@@ -222,7 +144,6 @@ class PPOAgent:
             'steps': stats.get('mean_length', 0.0),
             'num_episodes': stats.get('num_episodes', 0),
             'total_timesteps': stats.get('total_timesteps', 0),
-            # Metrici de loss
             'policy_loss': stats.get('policy_loss', 0.0),
             'value_loss': stats.get('value_loss', 0.0),
             'entropy': stats.get('entropy', 0.0),
@@ -231,16 +152,6 @@ class PPOAgent:
         }
 
     def evaluate(self, env: gym.Env, n_episodes: int = 10) -> Dict[str, float]:
-        """
-        Evaluează agentul fără explorare.
-
-        Args:
-            env: Mediul de evaluare
-            n_episodes: Număr de episoade de evaluare
-
-        Returns:
-            Dicționar cu metrici de evaluare
-        """
         rewards = []
         steps_list = []
         success_count = 0
@@ -275,18 +186,10 @@ class PPOAgent:
         }
 
     def save(self, filepath: str):
-        """Salvează agentul."""
         self.model.save(filepath)
 
     def load(self, filepath: str):
-        """Încarcă agentul."""
         self.model = SB3_PPO.load(filepath, env=self.env)
 
     def get_policy(self):
-        """
-        Returnează politica învățată.
-
-        Returns:
-            Modelul PPO
-        """
         return self.model.policy

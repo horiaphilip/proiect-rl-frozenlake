@@ -21,22 +21,17 @@ class DynamicFrozenLakeEnv(gym.Env):
         melt_cells_per_step: int = 1,
         melt_delay_steps: int = 10,
 
-        # reward shaping
         shaped_rewards: bool = True,
         shaping_scale: float = 0.02,
         hole_penalty: float = -1.0,
 
-        # map difficulty
         hole_ratio: float = 0.12,
 
-        # safe zone
         protect_safe_zone_from_melting: bool = True,
 
-        # stability
         regenerate_map_each_episode: bool = False,
         max_map_tries: int = 200,
 
-        # protect shortest path
         protect_solution_path_from_melting: bool = True,
 
         time_buckets: int = 10,
@@ -75,17 +70,14 @@ class DynamicFrozenLakeEnv(gym.Env):
 
         self.action_space = spaces.Discrete(4)
 
-        # Base states = map_size^2. Augmented states = base * time_buckets
         self.n_cells = self.map_size * self.map_size
         self.observation_space = spaces.Discrete(self.n_cells * self.time_buckets)
 
-        # safe zone lângă start
         self.safe_zone: Set[Tuple[int, int]] = {(0, 0), (0, 1), (1, 0), (1, 1)}
 
 
         self._generate_map_solvable()
 
-        # stare episod
         self.current_step = 0
         self.current_position = self.start_state
         self.current_slippery = self.slippery_start
@@ -93,7 +85,6 @@ class DynamicFrozenLakeEnv(gym.Env):
 
         self.hole_probabilities = np.ones(self.n_cells, dtype=np.float32)
 
-        # coridor protejat
         self.protected_cells: Set[Tuple[int, int]] = set()
         self._update_protected_cells()
 
@@ -128,11 +119,7 @@ class DynamicFrozenLakeEnv(gym.Env):
     def _is_passable(self, r: int, c: int) -> bool:
         return self.desc[r, c] in (b'S', b'F', b'G')
 
-    # =============================
-    # ✅ Time-aware state
-    # =============================
     def _time_bucket(self) -> int:
-        # bucketize [0..max_steps] into time_buckets
         if self.time_buckets <= 1:
             return 0
         bucket_size = max(1, self.max_steps // self.time_buckets)
@@ -140,7 +127,6 @@ class DynamicFrozenLakeEnv(gym.Env):
         return int(min(b, self.time_buckets - 1))
 
     def _augment_state(self, base_state: int) -> int:
-        # augmented_state in [0..n_cells*time_buckets-1]
         b = self._time_bucket()
         return int(base_state + b * self.n_cells)
 
@@ -280,7 +266,6 @@ class DynamicFrozenLakeEnv(gym.Env):
 
         self.current_slippery = self._get_slippery_prob()
 
-        # slip lateral (FrozenLake style)
         if np.random.random() < self.current_slippery:
             if action in (0, 2):
                 action = int(np.random.choice([1, 3]))
@@ -302,7 +287,6 @@ class DynamicFrozenLakeEnv(gym.Env):
 
         reward = float(self.step_penalty)
 
-        # potential-based shaping
         if self.shaped_rewards:
             reward += self.shaping_scale * (
                 self._manhattan_to_goal(old_state) - self._manhattan_to_goal(new_state)
@@ -328,7 +312,6 @@ class DynamicFrozenLakeEnv(gym.Env):
             "time_bucket": self._time_bucket(),
         }
 
-        # ✅ return augmented state
         obs = self._augment_state(int(new_state))
         return obs, float(reward), terminated, truncated, info
 
@@ -346,7 +329,6 @@ class DynamicFrozenLakeEnv(gym.Env):
 
         info = {"current_step": 0, "slippery_prob": float(self.current_slippery), "position": (0, 0), "time_bucket": 0}
 
-        # ✅ augmented obs at reset
         obs = self._augment_state(int(self.current_position))
         return obs, info
 

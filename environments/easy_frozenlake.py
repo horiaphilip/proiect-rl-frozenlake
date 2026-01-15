@@ -1,17 +1,3 @@
-"""
-Easy FrozenLake Environment
-
-Versiune simplificată și learnable a DynamicFrozenLake:
-- Hartă mică (4x4) pentru început
-- Slippery minimal și constant (fără creștere în timp)
-- Puține găuri (10-15%)
-- Safe zone largă lângă start
-- Fără topire de gheață
-- Reward shaping puternic pentru a ghida agentul
-- Penalizare mică pentru pași
-- Max steps generos
-"""
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -20,17 +6,6 @@ from typing import Optional, Tuple, Dict, Any
 
 
 class EasyFrozenLakeEnv(gym.Env):
-    """
-    Mediu FrozenLake simplificat pentru învățare rapidă.
-
-    Caracteristici:
-    - Hartă mică (4x4 default)
-    - Slippery constant și mic (0.05)
-    - Puține găuri (10%)
-    - Safe zone protejată
-    - Reward shaping pronunțat
-    - Guaranteed solvable map
-    """
 
     metadata = {"render_modes": ["human", "ansi"], "render_fps": 4}
 
@@ -40,25 +15,19 @@ class EasyFrozenLakeEnv(gym.Env):
         render_mode: Optional[str] = None,
         max_steps: int = 50,
 
-        # Slippery foarte mic și constant (NU crește)
         slippery: float = 0.05,
 
-        # Rewards
         step_penalty: float = -0.01,
         hole_penalty: float = -0.5,
         goal_reward: float = 1.0,
 
-        # Reward shaping puternic
         shaped_rewards: bool = True,
-        shaping_scale: float = 0.05,  # mai mare decât în hard mode
+        shaping_scale: float = 0.05,
 
-        # Dificultate
-        hole_ratio: float = 0.10,  # doar 10% găuri
+        hole_ratio: float = 0.10,
 
-        # Safe zone mare
-        safe_zone_radius: int = 1,  # protejează 2x2 lângă start
+        safe_zone_radius: int = 1,
 
-        # Mapă fixă pentru stabilitate
         regenerate_map_each_episode: bool = False,
 
         seed: Optional[int] = None,
@@ -84,7 +53,6 @@ class EasyFrozenLakeEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Discrete(map_size * map_size)
 
-        # Safe zone - zona protejată lângă start
         self.safe_zone = set()
         for i in range(min(safe_zone_radius + 1, map_size)):
             for j in range(min(safe_zone_radius + 1, map_size)):
@@ -122,7 +90,6 @@ class EasyFrozenLakeEnv(gym.Env):
         return abs(r - gr) + abs(c - gc)
 
     def _generate_map_once(self):
-        """Generează o hartă simplu cu puține găuri."""
         size = self.map_size
         self.desc = np.full((size, size), 'F', dtype='c')
 
@@ -132,7 +99,6 @@ class EasyFrozenLakeEnv(gym.Env):
         self.desc[size - 1, size - 1] = b'G'
         self.goal_state = size * size - 1
 
-        # Poziții disponibile pentru găuri (excludem safe zone + goal)
         available_positions = [
             (i, j)
             for i in range(size)
@@ -140,7 +106,6 @@ class EasyFrozenLakeEnv(gym.Env):
             if (i, j) not in self.safe_zone and (i, j) != (size - 1, size - 1)
         ]
 
-        # Număr mic de găuri
         num_holes = int((size * size - 2) * self.hole_ratio)
         num_holes = min(num_holes, len(available_positions))
 
@@ -151,7 +116,6 @@ class EasyFrozenLakeEnv(gym.Env):
                 self.desc[r, c] = b'H'
 
     def _is_solvable(self) -> bool:
-        """BFS pentru a verifica dacă există drum de la S la G."""
         size = self.map_size
         start = (0, 0)
         goal = (size - 1, size - 1)
@@ -176,13 +140,11 @@ class EasyFrozenLakeEnv(gym.Env):
         return False
 
     def _generate_map_solvable(self):
-        """Generează harta până găsește una solvabilă."""
         max_tries = 100
         for _ in range(max_tries):
             self._generate_map_once()
             if self._is_solvable():
                 return
-        # Dacă nu găsește, creează o hartă garantat solvabilă (fără găuri)
         self.desc = np.full((self.map_size, self.map_size), 'F', dtype='c')
         self.desc[0, 0] = b'S'
         self.desc[self.map_size - 1, self.map_size - 1] = b'G'
@@ -191,23 +153,19 @@ class EasyFrozenLakeEnv(gym.Env):
         self.current_step += 1
         old_state = self.current_position
 
-        # Slippery constant și mic
         if np.random.random() < self.slippery:
-            # Slip perpendicular
-            if action in (0, 2):  # LEFT/RIGHT
-                action = int(np.random.choice([1, 3]))  # DOWN/UP
-            else:  # DOWN/UP
-                action = int(np.random.choice([0, 2]))  # LEFT/RIGHT
+            if action in (0, 2):
+                action = int(np.random.choice([1, 3]))
+            else:
+                action = int(np.random.choice([0, 2]))
 
         new_state = self._apply_action(self.current_position, action)
         r, c = self._get_pos_from_state(new_state)
 
         self.current_position = new_state
 
-        # Calculează reward
         reward = float(self.step_penalty)
 
-        # Reward shaping - bonus când te apropii de goal
         if self.shaped_rewards:
             old_dist = self._manhattan_to_goal(old_state)
             new_dist = self._manhattan_to_goal(new_state)
@@ -271,7 +229,6 @@ class EasyFrozenLakeEnv(gym.Env):
 
 
 def register_easy_frozenlake():
-    """Înregistrează mediul în Gymnasium."""
     gym.register(
         id="EasyFrozenLake-v0",
         entry_point="environments.easy_frozenlake:EasyFrozenLakeEnv",

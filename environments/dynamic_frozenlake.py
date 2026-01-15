@@ -1,15 +1,3 @@
-"""
-Dynamic FrozenLake Environment
-
-Mediu personalizat bazat pe FrozenLake din Gymnasium cu următoarele caracteristici:
-- Probabilitate de alunecare variabilă în timp (crește de la slippery_start la slippery_end)
-- Penalizare pentru fiecare pas: step_penalty
-- Gheață care se topește progresiv (ice_melting + melting_rate)
-- Safe zone lângă start (nu se generează găuri acolo și poate fi protejată de topire)
-- Reward shaping opțional (ghidează agentul spre goal)
-- Penalizare la cădere în gaură (hole_penalty)
-"""
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -31,24 +19,18 @@ class DynamicFrozenLakeEnv(gym.Env):
         ice_melting: bool = True,
         melting_rate: float = 0.005,
 
-        # reward shaping
         shaped_rewards: bool = True,
         shaping_scale: float = 0.02,
         hole_penalty: float = -1.0,
 
-        # safe zone
         protect_safe_zone_from_melting: bool = True,
 
-        # dificultate
         hole_ratio: float = 0.20,
 
-        # topire controlată
         melt_cells_per_step: int = 1,
 
-        # IMPORTANT: nu regenera harta la fiecare episod (pentru stabilitate)
         regenerate_map_each_episode: bool = False,
 
-        # câte încercări să facă până găsește o hartă solvabilă
         max_map_tries: int = 200,
     ):
         super().__init__()
@@ -75,7 +57,6 @@ class DynamicFrozenLakeEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Discrete(map_size * map_size)
 
-        # safe zone lângă start
         self.safe_zone = {(0, 0), (0, 1), (1, 0), (1, 1)}
 
         self._generate_map_solvable()
@@ -84,12 +65,8 @@ class DynamicFrozenLakeEnv(gym.Env):
         self.current_position = self.start_state
         self.current_slippery = self.slippery_start
 
-        # probabilitatea ca o celulă să rămână solidă
         self.hole_probabilities = np.ones(self.map_size * self.map_size, dtype=np.float32)
 
-    # =====================================================
-    # HELPERS
-    # =====================================================
     def _get_state_from_pos(self, r: int, c: int) -> int:
         return r * self.map_size + c
 
@@ -98,13 +75,13 @@ class DynamicFrozenLakeEnv(gym.Env):
 
     def _apply_action(self, state: int, action: int) -> int:
         r, c = self._get_pos_from_state(state)
-        if action == 0:   # LEFT
+        if action == 0:
             c = max(c - 1, 0)
-        elif action == 1: # DOWN
+        elif action == 1:
             r = min(r + 1, self.map_size - 1)
-        elif action == 2: # RIGHT
+        elif action == 2:
             c = min(c + 1, self.map_size - 1)
-        elif action == 3: # UP
+        elif action == 3:
             r = max(r - 1, 0)
         return self._get_state_from_pos(r, c)
 
@@ -117,9 +94,6 @@ class DynamicFrozenLakeEnv(gym.Env):
         gr, gc = self._get_pos_from_state(self.goal_state)
         return abs(r - gr) + abs(c - gc)
 
-    # =====================================================
-    # MAP GENERATION (SOLVABLE)
-    # =====================================================
     def _generate_map_once(self):
         size = self.map_size
         self.desc = np.full((size, size), 'F', dtype='c')
@@ -149,7 +123,6 @@ class DynamicFrozenLakeEnv(gym.Env):
             self.desc[r, c] = b'H'
 
     def _is_solvable(self) -> bool:
-        """BFS pe celulele traversabile: S/F/G (nu H)."""
         size = self.map_size
         start = (0, 0)
         goal = (size - 1, size - 1)
@@ -174,17 +147,13 @@ class DynamicFrozenLakeEnv(gym.Env):
         return False
 
     def _generate_map_solvable(self):
-        """Generează până găsește o hartă solvabilă."""
         for _ in range(self.max_map_tries):
             self._generate_map_once()
             if self._is_solvable():
                 return
-        # dacă nu găsește, păstrează ultima (dar e foarte rar dacă hole_ratio nu e absurd)
-        # poți reduce hole_ratio dacă ajungi aici des.
 
-    # =====================================================
-    # CONTROLLED ICE MELTING
-    # =====================================================
+
+
     def _update_ice_melting(self):
         if not self.ice_melting:
             return
@@ -211,16 +180,13 @@ class DynamicFrozenLakeEnv(gym.Env):
             if self.hole_probabilities[s] < 0.0:
                 self.hole_probabilities[s] = 0.0
 
-    # =====================================================
-    # STEP / RESET
-    # =====================================================
+
     def step(self, action: int):
         self.current_step += 1
         old_state = self.current_position
 
         self.current_slippery = self._get_slippery_prob()
 
-        # slip lateral
         if np.random.random() < self.current_slippery:
             if action in (0, 2):
                 action = int(np.random.choice([1, 3]))

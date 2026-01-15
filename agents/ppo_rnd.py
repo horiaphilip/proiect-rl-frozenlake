@@ -1,13 +1,3 @@
-"""
-PPO + RND (from scratch, PyTorch) for discrete-state environments.
-
-- Works great for environments like FrozenLake where obs is Discrete (int state).
-- Uses one-hot encoding for state input.
-- Intrinsic reward from RND: MSE( target(s) - predictor(s) )
-- Total reward: r = r_ext + beta_int * normalize(r_int)
-- PPO with GAE, clipped objective
-"""
-
 import numpy as np
 from collections import deque
 from typing import Dict, Any, Optional, Tuple
@@ -33,7 +23,6 @@ class ActorCritic(nn.Module):
         self.pi = nn.Linear(hidden_dim, n_actions)
         self.v = nn.Linear(hidden_dim, 1)
 
-        # lightweight init
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
@@ -63,7 +52,6 @@ class ActorCritic(nn.Module):
 
 
 class RNDTarget(nn.Module):
-    """Fixed random target network."""
     def __init__(self, in_dim: int, out_dim: int = 64, hidden_dim: int = 128):
         super().__init__()
         self.net = nn.Sequential(
@@ -85,7 +73,6 @@ class RNDTarget(nn.Module):
 
 
 class RNDPredictor(nn.Module):
-    """Trainable predictor network."""
     def __init__(self, in_dim: int, out_dim: int = 64, hidden_dim: int = 128):
         super().__init__()
         self.net = nn.Sequential(
@@ -119,7 +106,6 @@ class PPORndAgent:
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
 
-        # RND
         beta_int: float = 0.05,         # try 0.02..0.15
         rnd_lr: float = 1e-4,
         rnd_out_dim: int = 64,
@@ -166,12 +152,10 @@ class PPORndAgent:
         self.rnd_update_proportion = rnd_update_proportion
         self.normalize_int_reward = normalize_int_reward
 
-        # running std for intrinsic reward normalization
         self._int_count = 1e-4
         self._int_mean = 0.0
         self._int_M2 = 1.0
 
-        # stats like your PPO callback (last 10 episodes)
         self.last10_rewards = deque(maxlen=10)
         self.last10_lengths = deque(maxlen=10)
         self.num_episodes = 0
@@ -189,7 +173,6 @@ class PPORndAgent:
         return mse
 
     def _update_int_stats(self, r_int_np: np.ndarray):
-        # Welford running variance
         for x in r_int_np:
             self._int_count += 1.0
             delta = x - self._int_mean
@@ -205,7 +188,6 @@ class PPORndAgent:
         return r_int / std
 
     def _collect_rollout(self):
-        # buffers
         states = torch.zeros(self.n_steps, dtype=torch.long, device=self.device)
         actions = torch.zeros(self.n_steps, dtype=torch.long, device=self.device)
         logprobs = torch.zeros(self.n_steps, dtype=torch.float32, device=self.device)
@@ -227,7 +209,6 @@ class PPORndAgent:
             next_obs, r_ext, terminated, truncated, _ = self.env.step(int(a.item()))
             done = bool(terminated or truncated)
 
-            # store
             states[t] = s
             actions[t] = a.squeeze(0)
             logprobs[t] = lp.squeeze(0)
@@ -236,7 +217,6 @@ class PPORndAgent:
             rewards_int[t] = r_int.squeeze(0)
             dones[t] = 1.0 if done else 0.0
 
-            # episode tracking (extrinsic for success)
             self._ep_return_ext += float(r_ext)
             self._ep_len += 1
             int_for_stats.append(float(r_int.item()))
@@ -252,11 +232,9 @@ class PPORndAgent:
                 self._ep_return_ext = 0.0
                 self._ep_len = 0
 
-        # update intrinsic reward running stats
         if self.normalize_int_reward and len(int_for_stats) > 0:
             self._update_int_stats(np.array(int_for_stats, dtype=np.float64))
 
-        # bootstrap value
         with torch.no_grad():
             ns = torch.tensor(self._obs, device=self.device).long()
             ns_oh = one_hot(ns.view(1), self.n_states)
@@ -285,14 +263,12 @@ class PPORndAgent:
         return advantages, returns
 
     def _update(self, states, actions, old_logprobs, values, rewards_ext, rewards_int, dones, next_value):
-        # total reward = ext + beta * normalized(int)
         r_int_norm = self._normalize_int(rewards_int)
         rewards_total = rewards_ext + self.beta_int * r_int_norm
 
         adv, ret = self._compute_gae(values, rewards_total, dones, next_value)
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
-        # flatten
         n = self.n_steps
         inds = np.arange(n)
 
@@ -315,7 +291,6 @@ class PPORndAgent:
                 mb_adv = adv[mb]
                 mb_ret = ret[mb]
 
-                # PPO losses
                 newlp, entropy, newv = self.ac.get_logprob_entropy_value(mb_states, mb_actions)
 
                 ratio = (newlp - mb_oldlp).exp()
@@ -333,7 +308,6 @@ class PPORndAgent:
                 nn.utils.clip_grad_norm_(self.ac.parameters(), self.max_grad_norm)
                 self.opt.step()
 
-                # RND predictor update (subset)
                 rnd_loss = torch.tensor(0.0, device=self.device)
                 if self.rnd_update_proportion > 0:
                     mask = (torch.rand(mb_states.shape[0], device=self.device) < self.rnd_update_proportion)
@@ -387,7 +361,6 @@ class PPORndAgent:
 
         while steps_done < total_timesteps:
             rollout = self._collect_rollout()
-            # rollout[5] = rewards_int tensor
             intrinsic_rewards = rollout[5].cpu().numpy()
             all_intrinsic_rewards.extend(intrinsic_rewards.tolist())
 
@@ -405,7 +378,6 @@ class PPORndAgent:
         stats = self.get_stats()
         stats["total_timesteps"] = int(self.training_timesteps)
 
-        # Adauga metrici de la ultimul update
         if all_losses:
             last_losses = all_losses[-1]
             stats["ppo_loss"] = last_losses.get("ppo_loss", 0.0)
@@ -414,7 +386,6 @@ class PPORndAgent:
             stats["value_loss"] = last_losses.get("value_loss", 0.0)
             stats["entropy"] = last_losses.get("entropy", 0.0)
 
-        # Intrinsic reward stats
         if all_intrinsic_rewards:
             stats["intrinsic_reward_mean"] = float(np.mean(all_intrinsic_rewards))
             stats["intrinsic_reward_std"] = float(np.std(all_intrinsic_rewards))
@@ -422,7 +393,6 @@ class PPORndAgent:
         return stats
 
     def train_episode(self, env, max_steps: Optional[int] = None) -> Dict[str, Any]:
-        # same logic as your PPOAgent: train for n_steps
         stats = self.train(total_timesteps=self.n_steps, progress_bar=False)
         return {
             "total_reward": stats.get("mean_reward", 0.0),
