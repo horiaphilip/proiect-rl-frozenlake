@@ -1,18 +1,3 @@
-"""
-Vizualizare Studiu Comparativ: Grafice Complete
-
-Genereaza grafice comparative pentru studiul 5 agenti x 3 environment-uri:
-1. Heatmap - Success Rate per agent/env
-2. Bar charts - Metrici per environment
-3. Box plots - Varianta intre seed-uri
-4. Learning curves - Progres in timpul antrenarii
-5. Radar chart - Comparatie multi-dimensionala
-6. Ranking - Clasament final
-
-Utilizare:
-    python experiments/visualize_comparative.py [--input results/comparative_study_*.json]
-"""
-
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,27 +12,22 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-# ============================================================================
-# CONFIGURATII VIZUALIZARE
-# ============================================================================
 
-# Culori per agent
+
 AGENT_COLORS = {
-    'Q-Learning': '#3498db',  # Blue
-    'DQN': '#e74c3c',         # Red
-    'DQN-PER': '#2ecc71',     # Green
-    'PPO': '#f39c12',         # Orange
-    'PPO-RND': '#9b59b6',     # Purple
+    'Q-Learning': '#3498db',
+    'DQN': '#e74c3c',
+    'DQN-PER': '#2ecc71',
+    'PPO': '#f39c12',
+    'PPO-RND': '#9b59b6',
 }
 
-# Culori per environment
 ENV_COLORS = {
-    'easy': '#27ae60',    # Green
-    'medium': '#f1c40f',  # Yellow
-    'hard': '#c0392b',    # Red
+    'easy': '#27ae60',
+    'medium': '#f1c40f',
+    'hard': '#c0392b',
 }
 
-# Nume afisare
 ENV_DISPLAY_NAMES = {
     'easy': 'Easy (4x4)',
     'medium': 'Medium (8x8)',
@@ -56,14 +36,12 @@ ENV_DISPLAY_NAMES = {
 
 
 def load_results(filepath: Optional[str] = None) -> Dict:
-    """Incarca rezultatele studiului comparativ."""
     results_dir = Path("../results")
 
     if filepath:
         with open(filepath, 'r') as f:
             return json.load(f)
 
-    # Gaseste cel mai recent fisier comparative_study_*.json
     files = list(results_dir.glob("comparative_study_*.json"))
 
     if not files:
@@ -77,7 +55,6 @@ def load_results(filepath: Optional[str] = None) -> Dict:
 
 
 def smooth_curve(values: List[float], weight: float = 0.9) -> List[float]:
-    """Exponential moving average pentru netezire."""
     smoothed = []
     last = values[0] if values else 0
     for v in values:
@@ -86,16 +63,11 @@ def smooth_curve(values: List[float], weight: float = 0.9) -> List[float]:
     return smoothed
 
 
-# ============================================================================
-# GRAFICE PRINCIPALE
-# ============================================================================
 
 def plot_heatmap_success_rate(results: Dict, output_dir: str) -> None:
-    """Heatmap: Success Rate per agent/environment."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Construieste matricea
     matrix = np.zeros((len(agents), len(envs)))
 
     for i, agent in enumerate(agents):
@@ -104,7 +76,6 @@ def plot_heatmap_success_rate(results: Dict, output_dir: str) -> None:
             if 'error' not in agg:
                 matrix[i, j] = agg['success_rate']['mean'] * 100
 
-    # Plot
     fig, ax = plt.subplots(figsize=(10, 8))
 
     sns.heatmap(
@@ -132,7 +103,7 @@ def plot_heatmap_success_rate(results: Dict, output_dir: str) -> None:
 
 
 def plot_bars_per_environment(results: Dict, output_dir: str) -> None:
-    """Bar charts: Metrici per environment."""
+
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -168,7 +139,6 @@ def plot_bars_per_environment(results: Dict, output_dir: str) -> None:
         colors = [AGENT_COLORS.get(a, 'gray') for a in agents]
         x = np.arange(len(agents))
 
-        # Success Rate
         ax1 = axes[env_idx, 0] if len(envs) > 1 else axes[0]
         bars1 = ax1.bar(x, success_rates, color=colors, alpha=0.8, edgecolor='black', yerr=errors_sr, capsize=5)
         ax1.set_ylabel('Success Rate (%)', fontsize=11, fontweight='bold')
@@ -179,7 +149,6 @@ def plot_bars_per_environment(results: Dict, output_dir: str) -> None:
         ax1.axhline(y=100, color='green', linestyle='--', alpha=0.5)
         ax1.grid(axis='y', alpha=0.3)
 
-        # Mean Reward
         ax2 = axes[env_idx, 1] if len(envs) > 1 else axes[1]
         bars2 = ax2.bar(x, mean_rewards, color=colors, alpha=0.8, edgecolor='black', yerr=errors_mr, capsize=5)
         ax2.set_ylabel('Mean Reward', fontsize=11, fontweight='bold')
@@ -188,7 +157,6 @@ def plot_bars_per_environment(results: Dict, output_dir: str) -> None:
         ax2.set_xticklabels(agents, rotation=30, ha='right')
         ax2.grid(axis='y', alpha=0.3)
 
-        # Mean Steps
         ax3 = axes[env_idx, 2] if len(envs) > 1 else axes[2]
         bars3 = ax3.bar(x, mean_steps, color=colors, alpha=0.8, edgecolor='black', yerr=errors_ms, capsize=5)
         ax3.set_ylabel('Mean Steps', fontsize=11, fontweight='bold')
@@ -205,7 +173,6 @@ def plot_bars_per_environment(results: Dict, output_dir: str) -> None:
 
 
 def plot_boxplots_variance(results: Dict, output_dir: str) -> None:
-    """Box plots: Varianta intre seed-uri."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -251,11 +218,9 @@ def plot_boxplots_variance(results: Dict, output_dir: str) -> None:
 
 
 def plot_learning_curves(results: Dict, output_dir: str) -> None:
-    """Learning curves: Progres in timpul antrenarii (doar pentru agenti episodici)."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti episodici
     episodic_agents = ['Q-Learning', 'DQN', 'DQN-PER']
     episodic_agents = [a for a in episodic_agents if a in agents]
 
@@ -286,13 +251,11 @@ def plot_learning_curves(results: Dict, output_dir: str) -> None:
                 ax.set_title(f'{agent}')
                 continue
 
-            # Plot fiecare run cu transparenta
             for run in valid_runs:
                 rewards = run['training_rewards']
                 episodes = range(len(rewards))
                 ax.plot(episodes, rewards, alpha=0.2, color=AGENT_COLORS.get(agent, 'gray'), linewidth=0.5)
 
-            # Media netezita
             all_rewards = [r['training_rewards'] for r in valid_runs]
             min_len = min(len(r) for r in all_rewards)
             all_rewards = [r[:min_len] for r in all_rewards]
@@ -317,21 +280,17 @@ def plot_learning_curves(results: Dict, output_dir: str) -> None:
 
 
 def plot_radar_chart(results: Dict, output_dir: str) -> None:
-    """Radar chart: Comparatie multi-dimensionala pe Hard env."""
     agents = results['metadata']['agents']
 
-    # Folosim Hard env pentru radar chart
     env = 'hard'
     if env not in results['results']:
         env = results['metadata']['environments'][-1]
 
     env_results = results['results'][env]
 
-    # Metrici pentru radar
     metrics = ['Success Rate', 'Mean Reward', 'Efficiency', 'Consistency']
     n_metrics = len(metrics)
 
-    # Calculeaza valori normalizate
     values_per_agent = {}
 
     for agent in agents:
@@ -344,13 +303,12 @@ def plot_radar_chart(results: Dict, output_dir: str) -> None:
         ms = agg['mean_steps']['mean']
         sr_std = agg['success_rate']['std']
 
-        # Normalizeaza
-        efficiency = sr / max(ms, 1) * 10  # Success per step
-        consistency = 1 - sr_std  # Lower std = higher consistency
+        efficiency = sr / max(ms, 1) * 10
+        consistency = 1 - sr_std
 
         values_per_agent[agent] = [
             sr,
-            max(0, mr + 1) / 2,  # Normalizeaza reward [-1, 1] -> [0, 1]
+            max(0, mr + 1) / 2,
             min(efficiency, 1),
             consistency
         ]
@@ -359,14 +317,14 @@ def plot_radar_chart(results: Dict, output_dir: str) -> None:
         print("  Skip: Nu exista date pentru radar chart")
         return
 
-    # Setup radar chart
+
     angles = np.linspace(0, 2 * np.pi, n_metrics, endpoint=False).tolist()
-    angles += angles[:1]  # Inchide poligonul
+    angles += angles[:1]
 
     fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
 
     for agent, values in values_per_agent.items():
-        values_plot = values + values[:1]  # Inchide poligonul
+        values_plot = values + values[:1]
         ax.plot(angles, values_plot, 'o-', linewidth=2,
                 label=agent, color=AGENT_COLORS.get(agent, 'gray'))
         ax.fill(angles, values_plot, alpha=0.15, color=AGENT_COLORS.get(agent, 'gray'))
@@ -386,11 +344,9 @@ def plot_radar_chart(results: Dict, output_dir: str) -> None:
 
 
 def plot_ranking_table(results: Dict, output_dir: str) -> None:
-    """Tabel si grafic cu ranking final."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Calculeaza scor mediu per agent (media success rate pe toate env-urile)
     agent_scores = {}
 
     for agent in agents:
@@ -402,10 +358,8 @@ def plot_ranking_table(results: Dict, output_dir: str) -> None:
         if scores:
             agent_scores[agent] = np.mean(scores)
 
-    # Sorteaza
     sorted_agents = sorted(agent_scores.items(), key=lambda x: x[1], reverse=True)
 
-    # Plot
     fig, ax = plt.subplots(figsize=(12, 6))
 
     agents_sorted = [a[0] for a in sorted_agents]
@@ -414,12 +368,10 @@ def plot_ranking_table(results: Dict, output_dir: str) -> None:
 
     bars = ax.barh(agents_sorted, scores_sorted, color=colors, alpha=0.8, edgecolor='black')
 
-    # Adauga valori
     for bar, score in zip(bars, scores_sorted):
         ax.text(score + 1, bar.get_y() + bar.get_height()/2,
                 f'{score:.1f}%', va='center', fontweight='bold', fontsize=12)
 
-    # Medalii
     medals = ['1st', '2nd', '3rd', '4th', '5th']
     medal_colors = ['gold', 'silver', '#CD7F32', 'gray', 'gray']
 
@@ -445,11 +397,9 @@ def plot_ranking_table(results: Dict, output_dir: str) -> None:
 
 
 def plot_scalability_analysis(results: Dict, output_dir: str) -> None:
-    """Analiza scalabilitatii: cum performeaza fiecare agent pe Easy->Medium->Hard."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Ordoneaza env-urile dupa dificultate
     env_order = ['easy', 'medium', 'hard']
     envs_ordered = [e for e in env_order if e in envs]
 
@@ -487,7 +437,6 @@ def plot_scalability_analysis(results: Dict, output_dir: str) -> None:
     ax.legend(loc='upper right')
     ax.grid(axis='y', alpha=0.3)
 
-    # Adauga arrow pentru dificultate crescuta
     ax.annotate('', xy=(len(envs_ordered)-0.5, -12), xytext=(-0.5, -12),
                arrowprops=dict(arrowstyle='->', color='red', lw=2),
                annotation_clip=False)
@@ -501,14 +450,12 @@ def plot_scalability_analysis(results: Dict, output_dir: str) -> None:
 
 
 def generate_summary_figure(results: Dict, output_dir: str) -> None:
-    """Figura sumara cu toate metricile cheie intr-un singur grafic."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
     fig = plt.figure(figsize=(20, 12))
     gs = GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
 
-    # 1. Heatmap (top-left, spanning 2 columns)
     ax1 = fig.add_subplot(gs[0, :2])
     matrix = np.zeros((len(agents), len(envs)))
     for i, agent in enumerate(agents):
@@ -523,7 +470,6 @@ def generate_summary_figure(results: Dict, output_dir: str) -> None:
                cbar_kws={'label': 'Success %'}, annot_kws={'size': 12, 'weight': 'bold'})
     ax1.set_title('Success Rate Matrix', fontsize=14, fontweight='bold')
 
-    # 2. Ranking (top-right)
     ax2 = fig.add_subplot(gs[0, 2])
     agent_avg = {}
     for agent in agents:
@@ -547,7 +493,6 @@ def generate_summary_figure(results: Dict, output_dir: str) -> None:
     ax2.set_xlim([0, 110])
     ax2.invert_yaxis()
 
-    # 3. Scalability (bottom-left)
     ax3 = fig.add_subplot(gs[1, 0])
     env_order = ['easy', 'medium', 'hard']
     envs_ordered = [e for e in env_order if e in envs]
@@ -566,7 +511,6 @@ def generate_summary_figure(results: Dict, output_dir: str) -> None:
     ax3.grid(alpha=0.3)
     ax3.set_ylim([0, 110])
 
-    # 4. Variance (bottom-middle)
     ax4 = fig.add_subplot(gs[1, 1])
     hard_env = 'hard' if 'hard' in envs else envs[-1]
     data_box = []
@@ -589,11 +533,9 @@ def generate_summary_figure(results: Dict, output_dir: str) -> None:
     ax4.set_ylim([-5, 110])
     ax4.grid(axis='y', alpha=0.3)
 
-    # 5. Key metrics table (bottom-right)
     ax5 = fig.add_subplot(gs[1, 2])
     ax5.axis('off')
 
-    # Construieste tabel text
     table_data = []
     headers = ['Agent', 'Easy', 'Medium', 'Hard', 'Avg']
     table_data.append(headers)
@@ -621,14 +563,12 @@ def generate_summary_figure(results: Dict, output_dir: str) -> None:
     table.set_fontsize(10)
     table.scale(1.2, 1.8)
 
-    # Coloreaza header
     for j in range(len(headers)):
         table[(0, j)].set_facecolor('#4a90d9')
         table[(0, j)].set_text_props(color='white', fontweight='bold')
 
     ax5.set_title('Summary Table', fontsize=14, fontweight='bold', pad=20)
 
-    # Titlu general
     fig.suptitle('STUDIU COMPARATIV: 5 Agenti x 3 Environment-uri',
                  fontsize=18, fontweight='bold', y=0.98)
 
@@ -637,16 +577,10 @@ def generate_summary_figure(results: Dict, output_dir: str) -> None:
     plt.close()
 
 
-# ============================================================================
-# GRAFICE METRICI EXTINSE (Loss, Q-values, Epsilon, TD Errors)
-# ============================================================================
-
 def plot_loss_curves(results: Dict, output_dir: str) -> None:
-    """Curbe de Loss pentru DQN si DQN-PER."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti cu loss
     loss_agents = ['DQN', 'DQN-PER']
     loss_agents = [a for a in loss_agents if a in agents]
 
@@ -677,13 +611,11 @@ def plot_loss_curves(results: Dict, output_dir: str) -> None:
                 ax.set_title(f'{agent}')
                 continue
 
-            # Plot fiecare run
             for run in valid_runs:
                 losses = run['losses']
                 ax.plot(range(len(losses)), losses, alpha=0.3,
                        color=AGENT_COLORS.get(agent, 'gray'), linewidth=0.5)
 
-            # Media netezita
             all_losses = [r['losses'] for r in valid_runs]
             min_len = min(len(l) for l in all_losses)
             all_losses = [l[:min_len] for l in all_losses]
@@ -708,11 +640,9 @@ def plot_loss_curves(results: Dict, output_dir: str) -> None:
 
 
 def plot_q_values_evolution(results: Dict, output_dir: str) -> None:
-    """Evolutia Q-values in timpul antrenarii."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti cu Q-values
     q_agents = ['Q-Learning', 'DQN', 'DQN-PER']
     q_agents = [a for a in q_agents if a in agents]
 
@@ -738,11 +668,9 @@ def plot_q_values_evolution(results: Dict, output_dir: str) -> None:
             if not valid_runs:
                 continue
 
-            # Media Q-values
             all_q_mean = [r['q_values_mean'] for r in valid_runs]
             all_q_max = [r['q_values_max'] for r in valid_runs]
 
-            # Asigura aceeasi lungime
             min_len = min(len(q) for q in all_q_mean)
             all_q_mean = [q[:min_len] for q in all_q_mean]
             all_q_max = [q[:min_len] for q in all_q_max]
@@ -777,11 +705,9 @@ def plot_q_values_evolution(results: Dict, output_dir: str) -> None:
 
 
 def plot_epsilon_decay(results: Dict, output_dir: str) -> None:
-    """Grafic cu decaderea epsilon pentru agentii episodici."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti cu epsilon
     epsilon_agents = ['Q-Learning', 'DQN', 'DQN-PER']
     epsilon_agents = [a for a in epsilon_agents if a in agents]
 
@@ -805,7 +731,6 @@ def plot_epsilon_decay(results: Dict, output_dir: str) -> None:
             if not valid_runs:
                 continue
 
-            # Ia primul run pentru vizualizare clara
             epsilons = valid_runs[0]['epsilons']
             ax.plot(range(len(epsilons)), epsilons, '-', label=agent,
                    color=AGENT_COLORS.get(agent, 'gray'), linewidth=2)
@@ -825,11 +750,9 @@ def plot_epsilon_decay(results: Dict, output_dir: str) -> None:
 
 
 def plot_td_errors(results: Dict, output_dir: str) -> None:
-    """Grafic cu TD errors pentru toti agentii Q-based (Q-Learning, DQN, DQN-PER)."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti care au TD errors
     td_agents = ['Q-Learning', 'DQN', 'DQN-PER']
     td_agents = [a for a in td_agents if a in agents]
 
@@ -857,7 +780,6 @@ def plot_td_errors(results: Dict, output_dir: str) -> None:
 
             has_data = True
 
-            # Media netezita
             all_td = [r['td_errors'] for r in valid_runs]
             min_len = min(len(t) for t in all_td)
             all_td = [t[:min_len] for t in all_td]
@@ -885,7 +807,6 @@ def plot_td_errors(results: Dict, output_dir: str) -> None:
 
 
 def plot_training_stability(results: Dict, output_dir: str) -> None:
-    """Grafic cu stabilitatea training-ului (success rate running window)."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -905,13 +826,12 @@ def plot_training_stability(results: Dict, output_dir: str) -> None:
             if not valid_runs:
                 continue
 
-            # Calculeaza running success rate (window de 50 episoade)
             all_successes = [r['training_successes'] for r in valid_runs]
             min_len = min(len(s) for s in all_successes)
             all_successes = [s[:min_len] for s in all_successes]
             mean_successes = np.mean(all_successes, axis=0)
 
-            # Running average
+
             window = min(50, len(mean_successes) // 5)
             if window > 1:
                 running_sr = np.convolve(mean_successes, np.ones(window)/window, mode='valid') * 100
@@ -934,11 +854,9 @@ def plot_training_stability(results: Dict, output_dir: str) -> None:
 
 
 def generate_metrics_table(results: Dict, output_dir: str) -> None:
-    """Genereaza un tabel complet cu toate metricile in format text si imagine."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Genereaza tabel text
     lines = []
     lines.append("=" * 100)
     lines.append("TABEL COMPLET METRICI - STUDIU COMPARATIV")
@@ -970,7 +888,6 @@ def generate_metrics_table(results: Dict, output_dir: str) -> None:
     lines.append("RANKING FINAL (Media Success Rate pe toate environment-urile)")
     lines.append("=" * 100)
 
-    # Calculeaza ranking
     agent_scores = {}
     for agent in agents:
         scores = []
@@ -987,17 +904,14 @@ def generate_metrics_table(results: Dict, output_dir: str) -> None:
         medal = ["1st", "2nd", "3rd", "4th", "5th"][idx] if idx < 5 else f"{idx+1}th"
         lines.append(f"  {medal}: {agent} - {score*100:.1f}%")
 
-    # Salveaza in fisier text
     with open(f"{output_dir}/metrics_table.txt", 'w') as f:
         f.write('\n'.join(lines))
 
     print(f"  Salvat: metrics_table.txt")
 
-    # Genereaza si imagine cu tabelul
     fig, ax = plt.subplots(figsize=(16, 10))
     ax.axis('off')
 
-    # Construieste tabel pentru imagine
     table_data = []
     headers = ['Agent'] + [ENV_DISPLAY_NAMES.get(e, e) for e in envs] + ['Average']
 
@@ -1017,7 +931,6 @@ def generate_metrics_table(results: Dict, output_dir: str) -> None:
         row.append(f'{avg:.1f}%')
         table_data.append(row)
 
-    # Sorteaza dupa average
     table_data.sort(key=lambda x: float(x[-1].replace('%', '')), reverse=True)
 
     table = ax.table(cellText=[headers] + table_data, loc='center', cellLoc='center')
@@ -1025,15 +938,12 @@ def generate_metrics_table(results: Dict, output_dir: str) -> None:
     table.set_fontsize(11)
     table.scale(1.3, 2.0)
 
-    # Coloreaza header
     for j in range(len(headers)):
         table[(0, j)].set_facecolor('#2c3e50')
         table[(0, j)].set_text_props(color='white', fontweight='bold')
 
-    # Coloreaza randurile cu gradient
     for i in range(1, len(table_data) + 1):
         avg_val = float(table_data[i-1][-1].replace('%', ''))
-        # Gradient de la rosu la verde bazat pe scor
         r = max(0, min(1, 1 - avg_val/100))
         g = max(0, min(1, avg_val/100))
         for j in range(len(headers)):
@@ -1048,16 +958,11 @@ def generate_metrics_table(results: Dict, output_dir: str) -> None:
     plt.close()
 
 
-# ============================================================================
-# GRAFICE NOI: PPO Losses, Buffer Evolution, Sample Efficiency, Convergence
-# ============================================================================
 
 def plot_ppo_losses(results: Dict, output_dir: str) -> None:
-    """Curbe de Policy Loss, Value Loss si Entropy pentru PPO/PPO-RND."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti PPO
     ppo_agents = ['PPO', 'PPO-RND']
     ppo_agents = [a for a in ppo_agents if a in agents]
 
@@ -1073,18 +978,14 @@ def plot_ppo_losses(results: Dict, output_dir: str) -> None:
     for env_idx, env in enumerate(envs):
         env_results = results['results'][env]
 
-        # Policy Loss
         ax1 = axes[env_idx][0]
-        # Value Loss
         ax2 = axes[env_idx][1]
-        # Entropy
         ax3 = axes[env_idx][2]
 
         for agent in ppo_agents:
             runs = env_results[agent]['runs']
             valid_runs = [r for r in runs if 'error' not in r]
 
-            # Policy losses
             policy_data = [r.get('policy_losses') for r in valid_runs if r.get('policy_losses')]
             if policy_data:
                 min_len = min(len(p) for p in policy_data)
@@ -1094,7 +995,6 @@ def plot_ppo_losses(results: Dict, output_dir: str) -> None:
                 ax1.plot(x_vals, mean_policy, 'o-', label=agent,
                         color=AGENT_COLORS.get(agent, 'gray'), linewidth=2)
 
-            # Value losses
             value_data = [r.get('value_losses') for r in valid_runs if r.get('value_losses')]
             if value_data:
                 min_len = min(len(v) for v in value_data)
@@ -1104,7 +1004,6 @@ def plot_ppo_losses(results: Dict, output_dir: str) -> None:
                 ax2.plot(x_vals, mean_value, 'o-', label=agent,
                         color=AGENT_COLORS.get(agent, 'gray'), linewidth=2)
 
-            # Entropies
             entropy_data = [r.get('entropies') for r in valid_runs if r.get('entropies')]
             if entropy_data:
                 min_len = min(len(e) for e in entropy_data)
@@ -1140,11 +1039,9 @@ def plot_ppo_losses(results: Dict, output_dir: str) -> None:
 
 
 def plot_buffer_evolution(results: Dict, output_dir: str) -> None:
-    """Evolutia buffer size pentru DQN si DQN-PER."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
-    # Agenti cu buffer
     buffer_agents = ['DQN', 'DQN-PER']
     buffer_agents = [a for a in buffer_agents if a in agents]
 
@@ -1168,7 +1065,6 @@ def plot_buffer_evolution(results: Dict, output_dir: str) -> None:
             if not valid_runs:
                 continue
 
-            # Media buffer sizes
             all_buffers = [r['buffer_sizes'] for r in valid_runs]
             min_len = min(len(b) for b in all_buffers)
             all_buffers = [b[:min_len] for b in all_buffers]
@@ -1192,7 +1088,6 @@ def plot_buffer_evolution(results: Dict, output_dir: str) -> None:
 
 
 def plot_sample_efficiency(results: Dict, output_dir: str) -> None:
-    """Sample efficiency: Success Rate vs numar de experiențe/timesteps."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1212,19 +1107,15 @@ def plot_sample_efficiency(results: Dict, output_dir: str) -> None:
             if not valid_runs:
                 continue
 
-            # Calculeaza cumulative success rate
             all_successes = [r['training_successes'] for r in valid_runs]
             min_len = min(len(s) for s in all_successes)
             all_successes = [s[:min_len] for s in all_successes]
 
-            # Cumulative mean success rate
             mean_successes = np.mean(all_successes, axis=0)
             cumsum = np.cumsum(mean_successes)
             indices = np.arange(1, len(cumsum) + 1)
             cumulative_sr = cumsum / indices * 100
 
-            # Pentru PPO, estimeaza numarul de samples (aproximativ)
-            # Pentru agenti episodici, numarul de episoade este direct
             ax.plot(range(len(cumulative_sr)), cumulative_sr, '-', label=agent,
                    color=AGENT_COLORS.get(agent, 'gray'), linewidth=2)
 
@@ -1243,7 +1134,6 @@ def plot_sample_efficiency(results: Dict, output_dir: str) -> None:
 
 
 def plot_convergence_speed(results: Dict, output_dir: str) -> None:
-    """Viteza de convergenta: episoade pana la threshold (50%, 70%, 90% success rate)."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1270,7 +1160,6 @@ def plot_convergence_speed(results: Dict, output_dir: str) -> None:
                     convergence_data[t].append(np.nan)
                 continue
 
-            # Calculeaza running success rate (window=50)
             all_successes = [r['training_successes'] for r in valid_runs]
             min_len = min(len(s) for s in all_successes)
             all_successes = [s[:min_len] for s in all_successes]
@@ -1284,7 +1173,6 @@ def plot_convergence_speed(results: Dict, output_dir: str) -> None:
 
             running_sr = np.convolve(mean_successes, np.ones(window)/window, mode='valid')
 
-            # Gaseste episodul la care se atinge fiecare threshold
             for thresh, label in zip(thresholds, threshold_labels):
                 reached = np.where(running_sr >= thresh)[0]
                 if len(reached) > 0:
@@ -1292,7 +1180,6 @@ def plot_convergence_speed(results: Dict, output_dir: str) -> None:
                 else:
                     convergence_data[label].append(np.nan)
 
-        # Plot grouped bar chart
         x = np.arange(len(agents))
         width = 0.25
 
@@ -1317,7 +1204,6 @@ def plot_convergence_speed(results: Dict, output_dir: str) -> None:
 
 
 def plot_intrinsic_rewards(results: Dict, output_dir: str) -> None:
-    """Evolutia intrinsic rewards pentru PPO-RND."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1372,12 +1258,8 @@ def plot_intrinsic_rewards(results: Dict, output_dir: str) -> None:
     plt.close()
 
 
-# ============================================================================
-# GRAFICE ADITIONALE (8 grafice noi)
-# ============================================================================
 
 def plot_episode_length_evolution(results: Dict, output_dir: str) -> None:
-    """Evolutia lungimii episoadelor in timpul antrenamentului."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1399,7 +1281,6 @@ def plot_episode_length_evolution(results: Dict, output_dir: str) -> None:
                 all_steps = [s[:min_len] for s in all_steps]
                 mean_steps = np.mean(all_steps, axis=0)
 
-                # Smooth cu rolling window
                 window = max(1, len(mean_steps) // 20)
                 smoothed = np.convolve(mean_steps, np.ones(window)/window, mode='valid')
                 x_vals = np.linspace(0, 100, len(smoothed))
@@ -1421,7 +1302,6 @@ def plot_episode_length_evolution(results: Dict, output_dir: str) -> None:
 
 
 def plot_action_distribution(results: Dict, output_dir: str) -> None:
-    """Distributia actiunilor selectate de fiecare agent."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
     action_names = ['Left', 'Down', 'Right', 'Up']
@@ -1442,7 +1322,6 @@ def plot_action_distribution(results: Dict, output_dir: str) -> None:
             valid_runs = [r for r in runs if 'error' not in r and r.get('action_counts')]
 
             if valid_runs:
-                # Agregam action counts din toate run-urile
                 total_counts = {a: 0 for a in range(4)}
                 for r in valid_runs:
                     ac = r['action_counts']
@@ -1471,7 +1350,6 @@ def plot_action_distribution(results: Dict, output_dir: str) -> None:
 
 
 def plot_reward_distribution_violin(results: Dict, output_dir: str) -> None:
-    """Distributia recompenselor (violin plot) pentru ultimele episoade."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1491,7 +1369,6 @@ def plot_reward_distribution_violin(results: Dict, output_dir: str) -> None:
             valid_runs = [r for r in runs if 'error' not in r and r.get('training_rewards')]
 
             if valid_runs:
-                # Ultimele 20% din rewards pentru fiecare run
                 final_rewards = []
                 for r in valid_runs:
                     rewards = r['training_rewards']
@@ -1523,7 +1400,6 @@ def plot_reward_distribution_violin(results: Dict, output_dir: str) -> None:
 
 
 def plot_learning_stability_var(results: Dict, output_dir: str) -> None:
-    """Stabilitatea invatarii - varianta recompenselor pe ferestre glisante."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1545,7 +1421,6 @@ def plot_learning_stability_var(results: Dict, output_dir: str) -> None:
                 all_rewards = [rw[:min_len] for rw in all_rewards]
                 mean_rewards = np.mean(all_rewards, axis=0)
 
-                # Calculam varianta pe fereastra glisanta
                 window = max(10, len(mean_rewards) // 20)
                 rolling_var = []
                 for i in range(window, len(mean_rewards)):
@@ -1569,7 +1444,6 @@ def plot_learning_stability_var(results: Dict, output_dir: str) -> None:
 
 
 def plot_priority_distribution(results: Dict, output_dir: str) -> None:
-    """Distributia prioritatilor in buffer-ul DQN-PER."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1592,12 +1466,11 @@ def plot_priority_distribution(results: Dict, output_dir: str) -> None:
 
         if valid_runs:
             has_data = True
-            # Colectam ultimul sample de prioritati din fiecare run
             all_priorities = []
             for r in valid_runs:
                 ps = r['priority_samples']
                 if ps:
-                    all_priorities.extend(ps[-1])  # Ultimul sample
+                    all_priorities.extend(ps[-1])
 
             if all_priorities:
                 ax.hist(all_priorities, bins=50, color=AGENT_COLORS.get('DQN-PER', 'orange'),
@@ -1624,12 +1497,10 @@ def plot_priority_distribution(results: Dict, output_dir: str) -> None:
 
 
 def plot_state_visitation_heatmap(results: Dict, output_dir: str) -> None:
-    """Heatmap-uri pentru frecventa vizitarii starilor."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
     for env in envs:
-        # Determinam dimensiunea grid-ului
         if env == 'easy':
             grid_size = 4
         else:
@@ -1646,7 +1517,6 @@ def plot_state_visitation_heatmap(results: Dict, output_dir: str) -> None:
             runs = env_results[agent]['runs']
             valid_runs = [r for r in runs if 'error' not in r and r.get('state_visits')]
 
-            # Initializare grid
             grid = np.zeros((grid_size, grid_size))
 
             if valid_runs:
@@ -1659,7 +1529,6 @@ def plot_state_visitation_heatmap(results: Dict, output_dir: str) -> None:
                         if row < grid_size and col < grid_size:
                             grid[row, col] += count
 
-                # Normalizam
                 if grid.max() > 0:
                     grid = grid / grid.max()
 
@@ -1668,7 +1537,6 @@ def plot_state_visitation_heatmap(results: Dict, output_dir: str) -> None:
             ax.set_xticks([])
             ax.set_yticks([])
 
-            # Adaugam S si G
             ax.text(0, 0, 'S', ha='center', va='center', fontsize=12, fontweight='bold', color='blue')
             ax.text(grid_size-1, grid_size-1, 'G', ha='center', va='center',
                    fontsize=12, fontweight='bold', color='green')
@@ -1682,7 +1550,6 @@ def plot_state_visitation_heatmap(results: Dict, output_dir: str) -> None:
 
 
 def plot_final_performance_box(results: Dict, output_dir: str) -> None:
-    """Box plot cu performanta finala din ultimele N episoade."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1703,7 +1570,6 @@ def plot_final_performance_box(results: Dict, output_dir: str) -> None:
             valid_runs = [r for r in runs if 'error' not in r and r.get('training_rewards')]
 
             if valid_runs:
-                # Ultimele 10% din rewards pentru fiecare run
                 final_rewards = []
                 for r in valid_runs:
                     rewards = r['training_rewards']
@@ -1735,7 +1601,6 @@ def plot_final_performance_box(results: Dict, output_dir: str) -> None:
 
 
 def plot_training_time_comparison(results: Dict, output_dir: str) -> None:
-    """Comparatie timp de antrenament per agent."""
     agents = results['metadata']['agents']
     envs = results['metadata']['environments']
 
@@ -1786,10 +1651,6 @@ def plot_training_time_comparison(results: Dict, output_dir: str) -> None:
     plt.close()
 
 
-# ============================================================================
-# MAIN
-# ============================================================================
-
 def main():
     parser = argparse.ArgumentParser(description='Vizualizare Studiu Comparativ')
     parser.add_argument('--input', type=str, help='Fisier JSON cu rezultate')
@@ -1801,21 +1662,17 @@ def main():
     print("VIZUALIZARE STUDIU COMPARATIV")
     print("=" * 60)
 
-    # Incarca rezultate
     results = load_results(args.input)
 
-    # Creeaza director output
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
 
-    # Seteaza stil
     sns.set_style("whitegrid")
     plt.rcParams['figure.facecolor'] = 'white'
     plt.rcParams['font.size'] = 10
 
     print("\nGenerez grafice principale...")
 
-    # Grafice principale
     plot_heatmap_success_rate(results, output_dir)
     plot_bars_per_environment(results, output_dir)
     plot_boxplots_variance(results, output_dir)
@@ -1827,7 +1684,6 @@ def main():
 
     print("\nGenerez grafice metrici extinse...")
 
-    # Grafice metrici extinse (loss, Q-values, epsilon, td_errors)
     plot_loss_curves(results, output_dir)
     plot_q_values_evolution(results, output_dir)
     plot_epsilon_decay(results, output_dir)
@@ -1837,7 +1693,6 @@ def main():
 
     print("\nGenerez grafice noi (PPO, Buffer, Efficiency, Convergence)...")
 
-    # Grafice noi
     plot_ppo_losses(results, output_dir)
     plot_buffer_evolution(results, output_dir)
     plot_sample_efficiency(results, output_dir)
@@ -1846,7 +1701,6 @@ def main():
 
     print("\nGenerez grafice aditionale (Behavior, Distribution, Performance)...")
 
-    # Grafice aditionale
     plot_episode_length_evolution(results, output_dir)
     plot_action_distribution(results, output_dir)
     plot_reward_distribution_violin(results, output_dir)

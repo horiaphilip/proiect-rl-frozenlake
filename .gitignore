@@ -1,4 +1,3 @@
-# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,13 +19,11 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
 .venv/
 venv/
 ENV/
 env/
 
-# IDEs
 .vscode/
 .idea/
 *.swp
@@ -34,22 +31,17 @@ env/
 *~
 .DS_Store
 
-# Jupyter Notebook
 .ipynb_checkpoints
 
-# Results
 results/*/
 !results/.gitkeep
 
-# Models
 *.pkl
 *.pt
 *.pth
 *.h5
 
-# Logs
 *.log
 logs/
 
-# OS
 Thumbs.db

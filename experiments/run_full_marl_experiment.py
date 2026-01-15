@@ -1,6 +1,3 @@
-# Experiment MARL Complet - 5 Seeds care sunt posibile garantat prin verificare BFS
-# DIFICULTATE FINALA: 25 Holes (39% densitate), 35% Slippery, Collab Penalty -0.3
-
 import os
 import json
 import numpy as np
@@ -27,7 +24,6 @@ class SolvableFrozenLake:
                     desc[r, c] = 'H'
                     holes_placed += 1
             
-            # VALIDARE
             agent1_can_reach = self._bfs_check_path(desc, (0,0), (0,7))
 
             agent2_can_reach = self._bfs_check_path(desc, (7,7), (0,7))
@@ -86,19 +82,19 @@ def save_map_visualization(desc, seed, filename):
                 color = 'gold'
                 text = 'Goal'
             elif cell == '1': 
-                color = '#ffcccc' # Light Red
+                color = '#ffcccc'
                 text = 'S1'
             elif cell == '2': 
-                color = '#cce5ff' # Light Blue
+                color = '#cce5ff'
                 text = 'S2'
             elif cell == 'A': 
-                color = '#ff9999' # Darker Red
+                color = '#ff9999'
                 text = 'G1'
             elif cell == 'B': 
-                color = '#99ccff' # Darker Blue
+                color = '#99ccff'
                 text = 'G2'
             elif cell == 'H': 
-                color = '#404040' # Dark Gray
+                color = '#404040'
                 text = ''
             
             rect = plt.Rectangle((c, 7-r), 1, 1, facecolor=color, edgecolor='gray')
@@ -151,7 +147,6 @@ class WrapperSoloEnv:
         return new_state, reward, done, False, {}
 
 class WrapperMARLEnv:
-    # Shared Rewards
     def __init__(self, desc, slipperiness=0.35):
         self.desc = desc
         self.slippery = slipperiness
@@ -199,14 +194,12 @@ class WrapperMARLEnv:
         done = False
         info = {}
         
-        # SHARED REWARD: If ANY succeeds -> BOTH get +1
         if (r1 > 0) or (r2 > 0):
             r1 = 1
             r2 = 1
             done = True
             info['success'] = True
         
-        # Fail if BOTH die
         cell1 = self.desc[ns1 // 8, ns1 % 8]
         cell2 = self.desc[ns2 // 8, ns2 % 8]
         if cell1 == 'H' and cell2 == 'H':
@@ -217,7 +210,6 @@ class WrapperMARLEnv:
 
 
 class WrapperMARLNonCooperative:
-    # Non Cooperative
     def __init__(self, desc, slipperiness=0.35):
         self.desc = desc
         self.slippery = slipperiness
@@ -265,21 +257,16 @@ class WrapperMARLNonCooperative:
         done = False
         info = {}
         
-        # INDIVIDUAL REWARDS: Fiecare agent cu propriile rewarduri
-        # Daca agent 1 reuseste si ag. 2 nu => penalty ag2
 
         if (r1 > 0) or (r2 > 0):
             done = True
-            # Success daca cel putin unul a ajuns
             info['success'] = (r1 > 0) or (r2 > 0)
             
-            # unul reuseste, celalalt nu
             if r1 > 0 and r2 <= 0:
-                r2 = -0.3  # Agent 2 fail in timp ce Agent 1 success
+                r2 = -0.3
             elif r2 > 0 and r1 <= 0:
-                r1 = -0.3  # Agent 1 fail in timp ce Agent 2 success
+                r1 = -0.3
         
-        # Fail daca ambii nu reusesc
         cell1 = self.desc[ns1 // 8, ns1 % 8]
         cell2 = self.desc[ns2 // 8, ns2 % 8]
         if cell1 == 'H' and cell2 == 'H':
@@ -324,7 +311,7 @@ def run_experiment_5_seeds():
     print("-" * 70)
     
     results = {'noncoop': [], 'coop': []}
-    q_tables = {}  #Q-tables
+    q_tables = {}
     
     for seed in seeds:
         print(f"\nProcessing Seed {seed}...")
@@ -335,12 +322,10 @@ def run_experiment_5_seeds():
         save_map_visualization(env_coop.desc, seed, f"results/map_seed_{seed}_marl.png")
         print(f"  > Map visualization saved.")
         
-        # Non-Cooperative MARL Train
         marl_noncoop = SimpleMARLSystem()
         for _ in range(n_episodes): marl_noncoop.train_episode(env_noncoop)
         noncoop_score = marl_noncoop.evaluate(env_noncoop, n_episodes=100)
         
-        # Cooperative MARL Train
         marl_coop = SimpleMARLSystem()
         for _ in range(n_episodes): marl_coop.train_episode(env_coop)
         coop_score = marl_coop.evaluate(env_coop, n_episodes=100)
