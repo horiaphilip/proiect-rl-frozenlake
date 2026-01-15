@@ -12,8 +12,9 @@
 4. [Experimente si Calibrare](#4-experimente-si-calibrare)
 5. [Rezultate si Analiza](#5-rezultate-si-analiza)
 6. [Concluzii](#6-concluzii)
-7. [Instalare si Utilizare](#7-instalare-si-utilizare)
-8. [Referinte](#8-referinte)
+7. [**BONUS: Multi-Agent Reinforcement Learning (MARL)**](#7-bonus-multi-agent-reinforcement-learning-marl)
+8. [Instalare si Utilizare](#8-instalare-si-utilizare)
+9. [Referinte](#9-referinte)
 
 ---
 
@@ -608,16 +609,198 @@ Pe medii stationare, RND nu ajuta. Pe medii dinamice, explorarea nu compenseaza 
 
 ---
 
-## 7. Instalare si Utilizare
+## 7. BONUS: Multi-Agent Reinforcement Learning (MARL)
 
-### 7.1 Cerinte
+### 7.1 Motivatie si Obiectiv
+
+Am extins proiectul cu un **experiment MARL (Multi-Agent Reinforcement Learning)** care compara **doua strategii de colaborare**:
+
+**Intrebare de Cercetare:** Poate colaborarea implicita (prin shared rewards) sa imbunatateasca performanta in Multi-Agent RL, chiar fara comunicare intre agenti?
+
+**Ipoteza:** Doi agenti care primesc **recompense comune** (Cooperative IQL) vor performa **mai bine** decat doi agenti egoisti cu recompense individuale (Non-Cooperative IQL).
+
+### 7.2 Setup Experimental
+
+#### Environment: FrozenLake 8x8 (Dificultate Agresiva)
+
+```
+Grid: 8x8 (64 states)
+Gropi: 25 (39% densitate) - FOARTE DIFICIL
+Slipperiness: 35% (sansa alunecare random)
+Actiuni: 4 (Left, Down, Right, Up)
+
+Agent 1: Start (0,0) - colt stanga-sus
+Agent 2: Start (7,7) - colt dreapta-jos
+Goal: (0,7) - colt dreapta-sus (UN SINGUR GOAL)
+
+Validare BFS: Garanteaza ca ambii agenti pot ajunge la goal
+```
+
+#### Sistemul Non-Cooperativ (Individual Rewards)
+
+```
+Filosofie: "Fiecare pentru el"
+
+Rewards:
+  Agent 1 ajunge la goal, Agent 2 nu:
+    → R1 = +1.0
+    → R2 = -0.3  (PENALIZARE - "a pierdut cursa")
+
+  Agent 2 ajunge la goal, Agent 1 nu:
+    → R1 = -0.3  (PENALIZARE)
+    → R2 = +1.0
+
+  Ambii cad in gropi:
+    → R1 = -0.5
+    → R2 = -0.5
+
+Algoritm: Independent Q-Learning (IQL)
+  - 2 agenti cu Q-tables separate [64, 4]
+  - Fara comunicare
+  - NU comunica intre ei
+  - Invatare competitiva/egoista
+```
+
+#### Sistemul Cooperativ (Shared Rewards)
+
+```
+Filosofie: "Toti pentru unul, unul pentru toti"
+
+Rewards:
+  ORICARE agent ajunge la goal:
+    → R1 = +1.0  (AMBII primesc)
+    → R2 = +1.0  (AMBII primesc)
+
+  Ambii cad in gropi:
+    → R1 = -0.5
+    → R2 = -0.5
+
+Algoritm: Independent Q-Learning (IQL)
+  - 2 agenti cu Q-tables separate [64, 4]
+  - Fara comunicare
+  - NU comunica intre ei
+  - Invatare colaborativa/de echipa
+```
+
+**DIFERENTA CHEIE:** Doar reward structure! Algoritmul (IQL) este IDENTIC in ambele sisteme.
+
+### 7.3 De ce Functioneaza Colaborarea?
+
+**1. Credit Assignment Superior**
+
+```
+Scenariu: Agent 1 cade in groapa, Agent 2 reuseste
+
+Non-Coop:
+  Agent 1 primeste -0.3 (penalizare)
+  → Invata: "Tot drumul meu a fost rau"
+  → NU distinge pasi buni de pasi rai
+
+Coop:
+  Agent 1 primeste +1.0 (shared reward!)
+  → Invata: "Pasii mei pana la X au fost buni pentru echipa"
+  → Distinge contributie pozitiva de esec final
+```
+
+**2. Feedback Pozitiv Mai Frecvent**
+
+```
+Non-Coop:
+  Agent 1 primeste +1 doar cand EL reuseste: ~45% episoade
+  → Feedback pozitiv RAR
+
+Coop:
+  Agent 1 primeste +1 cand ORICARE reuseste: ~75-90% episoade
+  → Feedback pozitiv FRECVENT → invatare RAPIDA
+```
+
+**3. Eliminarea Stressului Competitiv**
+
+```
+Non-Coop:
+  Agent invoata sa concureze
+  → Explorare limitata (teama de penalizare)
+
+Coop:
+  Agent invoata sa colaboreze implicit
+  → Explorare libera (nu e penalizat daca partenerul reuseste)
+```
+
+### 7.4 Rezultate
+
+Experimentul ruleaza pe **5 seeds** ([42, 43, 44, 45, 46]) cu **20,000 episoade training** si **100 episoade evaluare** per sistem per seed.
+
+| Metric | Non-Cooperativ | Cooperativ | Improvement |
+|--------|----------------|------------|-------------|
+| **Success Rate** | ~89.0% | ~94.4% | **+5.4%** |
+| **Consistenta** | Variatii mari | Mai stabil | Improved |
+| **Q-Values** | Localizate | Uniforme | Superior |
+
+**Observatie:** +5.4% improvement inseamna reducere cu ~50% a erorilor ramase (de la 11% la 5.6%)!
+
+###7.5 Rulare Experiment MARL
+
+```bash
+# 1. experiment
+python run_full_marl_experiment.py
+
+# 2. generare vizualizare
+python generate_visualizations.py
+
+```
+
+**Output Files:**
+```
+results/
+├── final_5seeds_results.json        # Rezultate numerice
+├── q_tables.npz                     # Q-tables invatate (toate)
+├── maps.json                        # Hartile generate
+├── map_seed_XX_marl.png            # Vizualizare harta (5 files)
+├── 2_per_seed_comparison.png       # Breakdown detaliat per seed
+├── 3_q_values_seed_XX.png          # Heatmaps Q-values (5 files, 6 heatmaps each)
+└── 4_summary_dashboard.png         # Dashboard complet cu metrici
+```
+
+### 7.6 Fisiere MARL
+
+```
+proiect-rl-frozenlake/
+├── agents/
+│   └── independent_q_learning.py    # SimpleQLearning & SimpleMARLSystem
+├── run_full_marl_experiment.py      # Experiment principal (Non-Coop vs Coop)
+├── generate_visualizations.py       # Generare grafice comparative
+└── results/                        # Toate fisierele generate
+```
+
+### 7.7 Key Insights
+
+**Independent Q-Learning (IQL):**
+- Fiecare agent invata propria Q-table
+- NU exista comunicare intre agenti
+- Colaborarea emerge IMPLICIT din shared rewards
+- Shared rewards → Credit assignment mai bun → Invatare mai rapida
+
+**Aplicatii Practice:**
+- Robotica (doi roboti trebuie sa mute un obiect)
+- Vehicule Autonome (masini care impartasesc obiective comune)
+- Sisteme Distribuite (agenti AI in retele/cloud)
+- Jocuri (team-based games unde comunicarea e limitata)
+
+**Concluzie (One-Liner):**
+> "Demonstram ca in Multi-Agent RL, 'Impreuna castigam' bate 'Fiecare pentru el' cu +5.4%, chiar cand agentii nu comunica."
+
+---
+
+## 8. Instalare si Utilizare
+
+### 8.1 Cerinte
 
 - Python 3.8+
 - PyTorch 2.0+
 - Gymnasium 0.29+
 - Stable-Baselines3 2.2+
 
-### 7.2 Instalare
+### 8.2 Instalare
 
 ```bash
 # Cloneaza repository-ul
@@ -633,7 +816,7 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### 7.3 Rulare Experimente
+### 8.3 Rulare Experimente
 
 ```bash
 # Studiu comparativ complet (45 experimente)
@@ -643,7 +826,7 @@ python experiments/comparative_study.py
 python experiments/visualize_comparative.py
 ```
 
-### 7.4 Structura Proiectului
+### 8.4 Structura Proiectului
 
 ```
 proiect_irl/
@@ -669,9 +852,9 @@ proiect_irl/
 
 ---
 
-## 8. Referinte
+## 9. Referinte
 
-### Papere
+### Papere (Single-Agent RL)
 
 1. Watkins, C. J. C. H., & Dayan, P. (1992). **Q-learning**. Machine Learning, 8(3-4), 279-292.
 
@@ -684,6 +867,16 @@ proiect_irl/
 5. Burda, Y., et al. (2019). **Exploration by Random Network Distillation**. ICLR.
 
 6. Ng, A. Y., et al. (1999). **Policy invariance under reward transformations**. ICML.
+
+### Papere (Multi-Agent RL)
+
+7. Tan, M. (1993). **Multi-agent reinforcement learning: Independent vs. cooperative agents**. ICML.
+
+8. Lowe, R., et al. (2017). **Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Environments**. NIPS.
+
+9. Foerster, J., et al. (2016). **Learning to Communicate with Deep Multi-Agent Reinforcement Learning**. NIPS.
+
+10. Sunehag, P., et al. (2018). **Value-Decomposition Networks For Cooperative Multi-Agent Learning**. AAMAS.
 
 ### Resurse
 
