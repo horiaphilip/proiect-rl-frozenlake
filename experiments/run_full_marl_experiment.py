@@ -372,7 +372,7 @@ def run_experiment_5_seeds():
     print("="*70)
     print(f"\n Conclusion: Shared rewards improve success rate by {avg_coop - avg_noncoop:.1f}%")
 
-    with open('results/final_5seeds_results.json', 'w') as f:
+    with open('../results/final_5seeds_results.json', 'w') as f:
         json.dump(results, f)
 
     q_tables_flat = {}
@@ -383,15 +383,15 @@ def run_experiment_5_seeds():
         q_tables_flat[f'{seed_key}_coop_agent1'] = q_tables[seed_key]['coop_agent1']
         q_tables_flat[f'{seed_key}_coop_agent2'] = q_tables[seed_key]['coop_agent2']
     
-    np.savez('results/q_tables.npz', **q_tables_flat)
+    np.savez('../results/q_tables.npz', **q_tables_flat)
 
     maps_data = {f'seed_{seed}_map': q_tables[f'seed_{seed}']['map'].tolist() 
                  for seed in seeds}
-    with open('results/maps.json', 'w') as f:
+    with open('../results/maps.json', 'w') as f:
         json.dump(maps_data, f)
     
     print("\n Q-tables and maps saved for visualization!")
         
 if __name__ == "__main__":
-    os.makedirs("results", exist_ok=True)
+    os.makedirs("../results", exist_ok=True)
     run_experiment_5_seeds()
