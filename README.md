@@ -236,8 +236,8 @@ r_total = r_extrinsic + β·normalize(r_intrinsic)
 | Q-Learning | Tabular | Value-based | ε-greedy |
 | DQN | Deep | Value-based | ε-greedy |
 | DQN-PER | Deep | Value-based | ε-greedy + priority |
-| PPO | Deep | Policy gradient | Stochastic policy |
-| PPO-RND | Deep | Policy gradient | Intrinsic curiosity |
+| PPO | Policy-Based | Policy gradient | Stochastic policy |
+| PPO-RND | Policy-Based  | Policy gradient | Intrinsic curiosity |
 
 ---
 
@@ -308,8 +308,6 @@ Testat: 1k, 10k, 100k
 ## 5. Rezultate si Analiza
 
 ### 5.1 Rezultate Numerice Complete
-
-**Experiment rulat la data:** 14 Ianuarie 2026
 
 #### Easy Environment (4x4)
 
